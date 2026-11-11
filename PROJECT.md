@@ -44,7 +44,8 @@
 
 ## 五、决策记录
 
-- 2026-11-11 · **DAO 层做双驱动适配（mysql2 主 / node:sqlite 本地兜底）**。原因：本机无 MySQL 8 也无 Docker；`better-sqlite3` 原生编译在无 VS Build Tools 的机器上失败，改用 Node 22 内置 `node:sqlite`（零依赖零编译，仅有一条 experimental 警告）。`.env` 默认 `sqlite` 开箱即跑，答辩时改 `DB_DRIVER=mysql` 即可，两套 schema 字段/索引一一对应，仍不引 ORM。
+- 2026-11-11 · **DAO 层做双驱动适配（mysql2 主 / node:sqlite 本地兜底）**。原因：搭建时按默认方式未检出 MySQL（后来确认装在 `D:\mysql\mysql-8.0.28-winx64`，但未注册系统服务、未加入 PATH）；`better-sqlite3` 原生编译在无 VS Build Tools 的机器上失败，故兜底改用 Node 22 内置 `node:sqlite`（零依赖零编译）。
+- 2026-11-11 · **切换到 MySQL 8 正式运行**：确认本机 MySQL 后，建库 `liujing`（utf8mb4）+ 专用账号 `liujing`，`.env` 改 `DB_DRIVER=mysql`，migrate 建表与注册/登录/写记录全链路验证通过，测试数据已清空。当前以 MySQL 为权威数据源；`node:sqlite` 仅保留作测试与应急兜底。
 - 2026-11-11 · **环境音效用 Web Audio API 实时合成**（细雨/溪流/晚风/夜虫）。原因：方案要求环境音效，但仓库无音频素材，合成可避免版权与外链风险，且体积为零。
 - 2026-11-11 · **成就徽章在前端由统计结果推导**（纯函数 + 单测），不新增数据库表。原因：方案限定 3 张核心表，徽章属展示层派生数据。
 - 2026-11-11 · **专注热力图用 ECharts heatmap（周×小时类别轴）而非 calendar**：需求是"星期几×几点"，类别轴语义更准；calendar 适合日期维度，如需打卡日历可后续叠加。
