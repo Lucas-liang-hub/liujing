@@ -141,8 +141,8 @@ export const useSessionStore = defineStore('session', () => {
    */
   async function saveRecord({ silent = false } = {}) {
     const durationSec = elapsedSec.value;
-    // 只要真实开始过专注就入库（>=1s），避免"学了几秒也该算数"的困惑；0 秒视为误触不记录
-    if (durationSec < 1) return { skipped: true, reason: 'too-short' };
+    // 30 秒以下视为误触不入库，避免零碎记录污染统计
+    if (durationSec < 30) return { skipped: true, reason: 'too-short' };
 
     const sceneStore = useSceneStore();
     const endedAt = new Date();
