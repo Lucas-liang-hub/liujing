@@ -9,3 +9,5 @@ data/
 .DS_Store
 .vite/
 coverage/
+.workbuddy/shots/
+frontend/.tmp/
