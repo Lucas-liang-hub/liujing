@@ -1,10 +1,12 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useUserStore } from '../stores/user.js';
 import { useSceneStore } from '../stores/scene.js';
+import { getAmbient } from '../utils/ambient.js';
+import SoundMenu from './SoundMenu.vue';
 
-const emit = defineEmits(['toggle-sound', 'logout']);
+const emit = defineEmits(['logout']);
 
 const route = useRoute();
 const router = useRouter();
@@ -19,9 +21,37 @@ const navs = [
 
 const initial = computed(() => (user.nickname || '客').slice(0, 1));
 
+const soundOpen = ref(false);
+const soundWrap = ref(null);
+
 function go(name) {
   if (route.name !== name) router.push({ name });
 }
+
+function onDocClick(e) {
+  if (!soundOpen.value) return;
+  if (soundWrap.value && !soundWrap.value.contains(e.target)) soundOpen.value = false;
+}
+
+function onEsc(e) {
+  if (e.key === 'Escape') soundOpen.value = false;
+}
+
+function handleLogout() {
+  soundOpen.value = false;
+  getAmbient().stop();
+  emit('logout');
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocClick);
+  document.addEventListener('keydown', onEsc);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onDocClick);
+  document.removeEventListener('keydown', onEsc);
+});
 </script>
 
 <template>
@@ -44,13 +74,27 @@ function go(name) {
     </nav>
 
     <div class="tools">
-      <button class="icon-btn" :class="{ on: scene.soundOn }" :title="scene.soundOn ? '关闭环境音' : '开启环境音'" @click="emit('toggle-sound')">
-        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <path d="M4 9v6h3.5L13 19V5L7.5 9H4z" />
-          <path v-if="scene.soundOn" d="M16.5 9.2a4 4 0 010 5.6M19 7a7.5 7.5 0 010 10" />
-          <path v-else d="M17 10l4 4M21 10l-4 4" />
-        </svg>
-      </button>
+      <div ref="soundWrap" class="sound-wrap">
+        <button
+          class="icon-btn"
+          :class="{ on: scene.soundOn, open: soundOpen }"
+          :title="'环境音' + (scene.soundOn ? '（播放中）' : '（已关闭）')"
+          :aria-expanded="soundOpen"
+          @click="soundOpen = !soundOpen"
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M4 9v6h3.5L13 19V5L7.5 9H4z" />
+            <path v-if="scene.soundOn" d="M16.5 9.2a4 4 0 010 5.6M19 7a7.5 7.5 0 010 10" />
+            <path v-else d="M17 10l4 4M21 10l-4 4" />
+          </svg>
+        </button>
+
+        <transition name="pop">
+          <div v-if="soundOpen" class="sound-pop glass">
+            <SoundMenu />
+          </div>
+        </transition>
+      </div>
 
       <div class="user">
         <span class="avatar">{{ initial }}</span>
@@ -145,6 +189,38 @@ function go(name) {
   color: var(--accent);
   border-color: var(--accent-soft);
   background: var(--accent-soft);
+}
+
+.icon-btn.open {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.sound-wrap {
+  position: relative;
+}
+
+.sound-pop {
+  position: absolute;
+  top: 40px;
+  right: -10px;
+  z-index: 40;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
 }
 
 .user {

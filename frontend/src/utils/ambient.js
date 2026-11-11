@@ -100,3 +100,10 @@ export const SOUND_OPTIONS = [
   { id: 'fireplace', name: '篝火' },
   { id: 'none', name: '静音' },
 ];
+
+/** 全站共享同一个音频实例：顶部面板 / 设置页 / 自习室操作的是同一路声音 */
+let shared = null;
+export function getAmbient() {
+  if (!shared) shared = createAmbient();
+  return shared;
+}

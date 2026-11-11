@@ -6,7 +6,8 @@ import { useUserStore } from '../stores/user.js';
 import { useSceneStore } from '../stores/scene.js';
 import { useYuejianStore } from '../stores/yuejian.js';
 import { SCENE_META } from '../scenes/index.js';
-import { SOUND_OPTIONS } from '../utils/ambient.js';
+import SoundMenu from '../components/SoundMenu.vue';
+import { getAmbient } from '../utils/ambient.js';
 
 const router = useRouter();
 const user = useUserStore();
@@ -16,8 +17,6 @@ const yuejian = useYuejianStore();
 const form = reactive({
   nickname: '',
   scene: 'sakura',
-  sound: 'rain',
-  soundOn: false,
   focusMinutes: 25,
   breakMinutes: 5,
   dailyGoalMinutes: 120,
@@ -35,11 +34,18 @@ function fill() {
   const p = user.prefs;
   form.nickname = user.nickname || '';
   form.scene = p.scene;
-  form.sound = p.sound;
-  form.soundOn = p.soundOn;
   form.focusMinutes = p.focusMinutes;
   form.breakMinutes = p.breakMinutes;
   form.dailyGoalMinutes = p.dailyGoalMinutes;
+  // 音效状态直接读写 scene store，与顶部面板保持同一份真相
+  scene.setSoundType(p.sound || 'rain');
+  scene.setVolume(p.volume ?? 0.5);
+  scene.toggleSound(Boolean(p.soundOn));
+  if (p.soundOn) {
+    const ambient = getAmbient();
+    ambient.setVolume(scene.volume);
+    ambient.play(scene.soundType === 'none' ? 'rain' : scene.soundType);
+  }
 }
 
 async function save() {
@@ -50,8 +56,9 @@ async function save() {
       nickname: form.nickname.trim() || undefined,
       prefs: {
         scene: form.scene,
-        sound: form.sound,
-        soundOn: form.soundOn,
+        sound: scene.soundType,
+        soundOn: scene.soundOn,
+        volume: scene.volume,
         focusMinutes: Number(form.focusMinutes),
         breakMinutes: Number(form.breakMinutes),
         dailyGoalMinutes: Number(form.dailyGoalMinutes),
@@ -150,23 +157,9 @@ defineExpose({ fill });
       <section class="card glass">
         <header class="card-head">
           <span class="panel-title">环境音</span>
-          <span class="hint">实时合成，无音频文件</span>
+          <span class="hint">点击即试听，与自习室顶部音效按钮同步</span>
         </header>
-        <div class="sounds">
-          <button
-            v-for="s in SOUND_OPTIONS"
-            :key="s.id"
-            class="sound"
-            :class="{ on: form.sound === s.id }"
-            @click="form.sound = s.id"
-          >
-            {{ s.name }}
-          </button>
-        </div>
-        <label class="switch">
-          <input v-model="form.soundOn" type="checkbox" />
-          <span>进入自习室时自动开启环境音</span>
-        </label>
+        <SoundMenu />
       </section>
 
       <section class="card glass">
@@ -295,38 +288,6 @@ defineExpose({ fill });
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.sound {
-  padding: 7px 16px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  font-size: 12.5px;
-  color: var(--text-dim);
-  transition: all var(--transition);
-}
-
-.sound:hover {
-  border-color: var(--line-strong);
-}
-
-.sound.on {
-  border-color: var(--accent);
-  color: var(--text);
-  background: var(--accent-soft);
-}
-
-.switch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.switch input {
-  accent-color: var(--accent);
 }
 
 code {

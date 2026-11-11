@@ -13,7 +13,7 @@ import { useYuejianStore } from '../stores/yuejian.js';
 import { statsApi } from '../api/index.js';
 import { formatDuration } from '../utils/format.js';
 import { applyTitle } from '../utils/title.js';
-import { createAmbient } from '../utils/ambient.js';
+import { getAmbient } from '../utils/ambient.js';
 
 const session = useSessionStore();
 const scene = useSceneStore();
@@ -23,8 +23,7 @@ const yuejian = useYuejianStore();
 const stats = ref(null);
 const toast = ref('');
 let toastTimer = null;
-// 音频实例同样不放进响应式
-const ambient = createAmbient();
+const ambient = getAmbient();
 
 const prefs = computed(() => user.prefs);
 
@@ -73,13 +72,6 @@ watch(
     if (ev.type === 'saveFailed') showToast(`记录保存失败：${ev.message}`);
   },
 );
-
-/* ── 音效 ─────────────────────────────────────── */
-function toggleSound() {
-  const on = scene.toggleSound();
-  if (on) ambient.play(scene.soundType === 'none' ? 'rain' : scene.soundType);
-  else ambient.stop();
-}
 
 /* ── 沉浸模式 ─────────────────────────────────── */
 async function toggleFocus() {
@@ -135,12 +127,14 @@ onMounted(async () => {
   await user.fetchProfile().catch(() => null);
   await yuejian.init();
 
-  // 偏好同步到本地状态
+  // 偏好同步到本地状态（音效状态由 scene store 统一持有，顶部面板与设置页共享）
   if (!scene.manual) scene.setScene(prefs.value.scene, { byUser: false });
+  scene.setSoundType(prefs.value.sound || scene.soundType);
+  scene.setVolume(prefs.value.volume ?? scene.volume);
   if (prefs.value.soundOn) {
-    scene.soundType = prefs.value.sound;
     scene.toggleSound(true);
-    ambient.play(prefs.value.sound === 'none' ? 'rain' : prefs.value.sound);
+    ambient.setVolume(scene.volume);
+    ambient.play(scene.soundType === 'none' ? 'rain' : scene.soundType);
   }
 
   const summary = await refreshStats();
@@ -157,7 +151,6 @@ onBeforeUnmount(() => {
   if (toastTimer) clearTimeout(toastTimer);
   session.dispose();
   yuejian.flush();
-  ambient.destroy();
   applyTitle({ status: 'idle' });
 });
 </script>
@@ -167,7 +160,7 @@ onBeforeUnmount(() => {
     <SceneCanvas />
 
     <div class="room-body">
-      <AppHeader v-if="!scene.focusMode" @toggle-sound="toggleSound" @logout="user.logout()" />
+      <AppHeader v-if="!scene.focusMode" @logout="user.logout()" />
 
       <main class="grid">
         <aside class="col left" v-if="!scene.focusMode">
