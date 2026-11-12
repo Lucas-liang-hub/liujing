@@ -215,3 +215,38 @@ export const statsDao = {
     return rows.map((r) => ({ weekday: num(r.wd), hour: num(r.hr), sec: num(r.sec) }));
   },
 };
+
+/* ------------------------------ 应用配置 ------------------------------ */
+
+export const configDao = {
+  async get(key) {
+    const db = await getDb();
+    const row = await db.get('SELECT config_value FROM app_configs WHERE config_key = ?', [key]);
+    return row ? row.config_value : null;
+  },
+
+  /** 双驱动的 upsert 语法不同，各自实现 */
+  async set(key, value) {
+    const db = await getDb();
+    if (db.driver === 'mysql') {
+      await db.run(
+        `INSERT INTO app_configs (config_key, config_value, updated_at)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
+        [key, value, toLocalDateTime()],
+      );
+    } else {
+      await db.run(
+        `INSERT INTO app_configs (config_key, config_value, updated_at)
+         VALUES (?, ?, datetime('now', 'localtime'))
+         ON CONFLICT(config_key) DO UPDATE SET config_value = excluded.config_value`,
+        [key, value],
+      );
+    }
+  },
+
+  async del(key) {
+    const db = await getDb();
+    await db.run('DELETE FROM app_configs WHERE config_key = ?', [key]);
+  },
+};

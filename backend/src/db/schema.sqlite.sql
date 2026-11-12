@@ -25,3 +25,9 @@ CREATE TABLE IF NOT EXISTS study_records (
 );
 
 CREATE INDEX IF NOT EXISTS idx_records_user_started ON study_records (user_id, started_at);
+
+CREATE TABLE IF NOT EXISTS app_configs (
+  config_key   TEXT PRIMARY KEY,
+  config_value TEXT,
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);

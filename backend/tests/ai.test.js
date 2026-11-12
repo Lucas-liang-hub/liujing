@@ -71,3 +71,45 @@ describe('POST /api/ai/chat 保底轨', () => {
     expect(res.text).toContain('"delta"');
   });
 });
+
+describe('LLM 运行时配置 /api/ai/llm', () => {
+  const put = (body) => request(app).put('/api/ai/llm').set('Authorization', `Bearer ${token}`).send(body);
+  const get = () => request(app).get('/api/ai/llm').set('Authorization', `Bearer ${token}`);
+  const del = () => request(app).delete('/api/ai/llm').set('Authorization', `Bearer ${token}`);
+
+  it('未登录返回 401', async () => {
+    expect((await request(app).get('/api/ai/llm')).status).toBe(401);
+  });
+
+  it('空 apiKey 返回 400', async () => {
+    expect((await put({ apiKey: '  ' })).status).toBe(400);
+  });
+
+  it('非法 baseUrl 返回 400', async () => {
+    expect((await put({ apiKey: 'sk-test-12345678', baseUrl: 'not-a-url' })).status).toBe(400);
+  });
+
+  it('保存后状态为 runtime 且 Key 打码，llmEnabled 变 true', async () => {
+    const saved = await put({ apiKey: 'sk-abcdef1234567890abcd', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' });
+    expect(saved.status).toBe(200);
+    expect(saved.body.source).toBe('runtime');
+    expect(saved.body.keyMasked).toMatch(/^sk-ab\*\*\*\*abcd$/);
+    expect(saved.body.keyMasked).not.toContain('abcdef1234567890');
+
+    const status = await get();
+    expect(status.body.configured).toBe(true);
+    expect(status.body.source).toBe('runtime');
+    expect(status.body.model).toBe('deepseek-chat');
+
+    const cfg = await request(app).get('/api/ai/config').set('Authorization', `Bearer ${token}`);
+    expect(cfg.body.llmEnabled).toBe(true);
+  });
+
+  it('删除后回落 env，llmEnabled 回到 .env 的状态', async () => {
+    const res = await del();
+    expect(res.status).toBe(200);
+    expect(res.body.source).toBe('env');
+    const cfg = await request(app).get('/api/ai/config').set('Authorization', `Bearer ${token}`);
+    expect(cfg.body.llmEnabled).toBe(false); // 测试环境未配 .env Key
+  });
+});

@@ -2,13 +2,22 @@ import { Router } from 'express';
 import { config } from '../config/index.js';
 import { recordDao, statsDao, userDao } from '../dao/index.js';
 import { buildContext } from '../ai/prompt.js';
-import { isLlmEnabled } from '../ai/llm.js';
+import { isLlmEnabled, chatOnce } from '../ai/llm.js';
+import { currentLlmConfigSync } from '../ai/runtime.js';
 import { replyStream, replyText, normalizeEvent } from '../ai/service.js';
 import { asyncHandler, badRequest } from '../middleware/error.js';
 import { addDays, computeStreak, startOfDay, startOfMonth, startOfWeek, toLocalDateTime } from '../utils/time.js';
 import { validateScene } from '../middleware/validate.js';
+import { currentLlmConfig, setLlmOverride, clearLlmOverride, llmSource } from '../ai/runtime.js';
 
 const router = Router();
+
+/** Key 打码：只露前 5 后 4，中间 **** */
+function maskKey(key) {
+  if (!key) return null;
+  if (key.length <= 12) return `${key.slice(0, 3)}****`;
+  return `${key.slice(0, 5)}****${key.slice(-4)}`;
+}
 
 /** 从数据库读取真实画像，忽略前端传来的 stats（防伪造上下文） */
 async function loadContext(userId, scene) {
@@ -52,10 +61,89 @@ function sanitizeHistory(history) {
 router.get('/config', (req, res) => {
   res.json({
     llmEnabled: isLlmEnabled(),
-    model: isLlmEnabled() ? config.llm.model : null,
+    model: isLlmEnabled() ? currentLlmConfigSync().model : null,
     maxHistoryRounds: config.limits.maxHistoryRounds,
   });
 });
+
+/** LLM 运行时配置状态（Key 只回打码值） */
+router.get('/llm', asyncHandler(async (req, res) => {
+  const cfg = await currentLlmConfig();
+  res.json({
+    configured: Boolean(cfg.apiKey),
+    source: llmSource(),
+    baseUrl: cfg.baseUrl,
+    model: cfg.model,
+    keyMasked: maskKey(cfg.apiKey),
+  });
+}));
+
+/** 热切换 LLM 配置（设置页随时换 Key / 服务商，无需重启） */
+router.put(
+  '/llm',
+  asyncHandler(async (req, res) => {
+    const body = req.body || {};
+    const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+    const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
+    const model = typeof body.model === 'string' ? body.model.trim() : '';
+
+    if (!apiKey) throw badRequest('apiKey 不能为空');
+    if (apiKey.length < 8 || apiKey.length > 200) throw badRequest('apiKey 长度不合法');
+    if (baseUrl) {
+      try {
+        const u = new URL(baseUrl);
+        if (!['http:', 'https:'].includes(u.protocol)) throw new Error('protocol');
+      } catch {
+        throw badRequest('baseUrl 必须是合法的 http(s) 地址');
+      }
+    }
+    if (model && model.length > 100) throw badRequest('model 过长');
+
+    const saved = await setLlmOverride({
+      apiKey,
+      baseUrl: baseUrl || undefined,
+      model: model || undefined,
+    });
+    res.json({
+      configured: true,
+      source: 'runtime',
+      baseUrl: saved.baseUrl,
+      model: saved.model,
+      keyMasked: maskKey(saved.apiKey),
+    });
+  }),
+);
+
+/** 清除运行时配置，回落 .env */
+router.delete(
+  '/llm',
+  asyncHandler(async (req, res) => {
+    await clearLlmOverride();
+    const cfg = await currentLlmConfig();
+    res.json({
+      configured: Boolean(cfg.apiKey),
+      source: 'env',
+      baseUrl: cfg.baseUrl,
+      model: cfg.model,
+      keyMasked: maskKey(cfg.apiKey),
+    });
+  }),
+);
+
+/** 连通性测试：用当前配置发一条最小请求，直接暴露 Key/地址/模型是否可用 */
+router.post(
+  '/llm/test',
+  asyncHandler(async (req, res) => {
+    const cfg = await currentLlmConfig();
+    if (!cfg.apiKey) throw badRequest('尚未配置 apiKey');
+    try {
+      const reply = await chatOnce([{ role: 'user', content: '请只回复四个字：连接正常' }]);
+      res.json({ ok: true, reply: reply.slice(0, 60) });
+    } catch (err) {
+      res.json({ ok: false, error: err.message });
+    }
+  }),
+);
 
 /**
  * POST /api/ai/chat

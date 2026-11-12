@@ -28,3 +28,10 @@ CREATE TABLE IF NOT EXISTS study_records (
   KEY idx_records_user_started (user_id, started_at),
   CONSTRAINT fk_records_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '自习记录表';
+
+CREATE TABLE IF NOT EXISTS app_configs (
+  config_key   VARCHAR(64)  NOT NULL COMMENT '配置键，如 llm_runtime',
+  config_value TEXT         NULL COMMENT '配置值（JSON 或文本）',
+  updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (config_key)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '应用级运行时配置';

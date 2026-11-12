@@ -6,6 +6,7 @@ import { useUserStore } from '../stores/user.js';
 import { useSceneStore } from '../stores/scene.js';
 import { useYuejianStore } from '../stores/yuejian.js';
 import { SCENE_META } from '../scenes/index.js';
+import { aiApi } from '../api/index.js';
 
 const router = useRouter();
 const user = useUserStore();
@@ -24,9 +25,76 @@ const saving = ref(false);
 const savedAt = ref('');
 const error = ref('');
 
-const llmText = computed(() =>
-  yuejian.llmEnabled ? '已启用大模型增强对话' : '当前为规则语库保底（未配置 LLM_API_KEY）',
-);
+/* ── 月见 · 大模型运行时配置 ─────────────────── */
+const llmStatus = ref(null); // { configured, source, baseUrl, model, keyMasked }
+const llmForm = reactive({ apiKey: '', baseUrl: '', model: '' });
+const llmSaving = ref(false);
+const llmMsg = ref('');
+
+async function loadLlm() {
+  try {
+    llmStatus.value = await aiApi.getLlm();
+    if (llmStatus.value.source === 'env') {
+      llmForm.baseUrl = llmStatus.value.baseUrl || '';
+      llmForm.model = llmStatus.value.model || '';
+    } else {
+      llmForm.baseUrl = llmStatus.value.baseUrl || '';
+      llmForm.model = llmStatus.value.model || '';
+    }
+  } catch {
+    llmStatus.value = null;
+  }
+}
+
+async function saveLlm() {
+  if (!llmForm.apiKey.trim()) {
+    llmMsg.value = '请填写 API Key';
+    return;
+  }
+  llmSaving.value = true;
+  llmMsg.value = '';
+  try {
+    llmStatus.value = await aiApi.setLlm({
+      apiKey: llmForm.apiKey.trim(),
+      baseUrl: llmForm.baseUrl.trim(),
+      model: llmForm.model.trim(),
+    });
+    llmForm.apiKey = '';
+    await yuejian.init();
+    llmMsg.value = '已生效，月见现在用这个模型说话了';
+  } catch (err) {
+    llmMsg.value = err.message;
+  } finally {
+    llmSaving.value = false;
+  }
+}
+
+async function resetLlm() {
+  llmSaving.value = true;
+  llmMsg.value = '';
+  try {
+    llmStatus.value = await aiApi.clearLlm();
+    await yuejian.init();
+    llmMsg.value = llmStatus.value.configured ? '已恢复为 .env 配置' : '已清除，月见回到规则语库陪伴';
+  } catch (err) {
+    llmMsg.value = err.message;
+  } finally {
+    llmSaving.value = false;
+  }
+}
+
+async function testLlm() {
+  llmSaving.value = true;
+  llmMsg.value = '';
+  try {
+    const res = await aiApi.testLlm();
+    llmMsg.value = res.ok ? `连接正常，模型回复：${res.reply}` : `连接失败：${res.error}`;
+  } catch (err) {
+    llmMsg.value = err.message;
+  } finally {
+    llmSaving.value = false;
+  }
+}
 
 function fill() {
   const p = user.prefs;
@@ -71,6 +139,7 @@ function logout() {
 onMounted(async () => {
   await user.fetchProfile().catch(() => null);
   await yuejian.init();
+  await loadLlm();
   fill();
 });
 
@@ -145,13 +214,50 @@ defineExpose({ fill });
 
       <section class="card glass">
         <header class="card-head">
-          <span class="panel-title">月见</span>
+          <span class="panel-title">月见 · 大模型</span>
           <span class="chip">{{ yuejian.llmEnabled ? '增强对话' : '规则陪伴' }}</span>
         </header>
-        <p class="hint">{{ llmText }}</p>
-        <p class="hint">
-          想让她更懂你，可以在后端 <code>.env</code> 里填入 <code>LLM_API_KEY</code>（DeepSeek 或阿里百炼），保存后重启服务即可自动启用，无需改代码。
-        </p>
+
+        <div class="llm-status" v-if="llmStatus">
+          <span class="st-dot" :class="{ on: llmStatus.configured }"></span>
+          <span class="st-text">
+            {{ llmStatus.configured ? `已连接 · ${llmStatus.model}` : '未配置 · 走规则语库保底' }}
+          </span>
+          <span class="st-tag" v-if="llmStatus.configured">
+            {{ llmStatus.source === 'runtime' ? '页面配置' : '.env 默认' }}
+          </span>
+          <code class="st-key" v-if="llmStatus.keyMasked">{{ llmStatus.keyMasked }}</code>
+        </div>
+
+        <div class="llm-grid">
+          <label class="field">
+            <span class="field-label">API Key</span>
+            <input v-model="llmForm.apiKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
+          </label>
+          <label class="field">
+            <span class="field-label">接口地址（OpenAI 兼容）</span>
+            <input v-model="llmForm.baseUrl" class="input" list="llm-presets" placeholder="https://api.deepseek.com/v1" />
+            <datalist id="llm-presets">
+              <option value="https://api.deepseek.com/v1">DeepSeek</option>
+              <option value="https://dashscope.aliyuncs.com/compatible-mode/v1">阿里百炼</option>
+            </datalist>
+          </label>
+          <label class="field">
+            <span class="field-label">模型</span>
+            <input v-model="llmForm.model" class="input" placeholder="deepseek-chat" />
+          </label>
+        </div>
+
+        <div class="llm-actions">
+          <button class="btn btn-primary" :disabled="llmSaving" @click="saveLlm">
+            {{ llmSaving ? '处理中' : '保存并启用' }}
+          </button>
+          <button class="btn btn-ghost" :disabled="llmSaving" @click="testLlm">测试连接</button>
+          <button class="btn btn-ghost" :disabled="llmSaving" @click="resetLlm">恢复 .env 默认</button>
+          <span v-if="llmMsg" class="hint">{{ llmMsg }}</span>
+        </div>
+
+        <p class="hint">Key 只保存在后端，页面与网络传输中仅显示打码值；切换立即生效，无需重启。</p>
       </section>
 
       <div class="actions">
@@ -268,6 +374,70 @@ defineExpose({ fill });
 .sounds {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 月见 · 大模型配置 */
+.llm-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.st-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.st-dot.on {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.st-text {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.st-tag {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-faint);
+}
+
+.st-key {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.llm-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .llm-grid {
+    grid-template-columns: 2fr 2fr 1fr;
+  }
+}
+
+.llm-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
   flex-wrap: wrap;
 }
 

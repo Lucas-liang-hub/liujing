@@ -1,37 +1,39 @@
 import { config } from '../config/index.js';
+import { currentLlmConfigSync } from './runtime.js';
 
 /**
  * 大模型代理（仅后端持有 Key，技术方案「不做的事」明确前端不得直连）。
- * 采用 OpenAI 兼容协议：换 DeepSeek / 阿里百炼 / 其它兼容服务时只改 .env。
+ * 采用 OpenAI 兼容协议：支持 .env 静态配置 + 设置页运行时热切换。
  */
 
 export function isLlmEnabled() {
-  return Boolean(config.llm.apiKey);
+  return Boolean(currentLlmConfigSync().apiKey);
 }
 
 function endpoint() {
-  return `${config.llm.baseUrl}/chat/completions`;
+  return `${currentLlmConfigSync().baseUrl}/chat/completions`;
 }
 
 function headers() {
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${config.llm.apiKey}`,
+    Authorization: `Bearer ${currentLlmConfigSync().apiKey}`,
   };
 }
 
 async function request(messages, stream) {
+  const cfg = currentLlmConfigSync();
   const res = await fetch(endpoint(), {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify({
-      model: config.llm.model,
+      model: cfg.model,
       messages,
       stream,
       temperature: 0.7,
       max_tokens: 600,
     }),
-    signal: AbortSignal.timeout(config.llm.timeoutMs),
+    signal: AbortSignal.timeout(cfg.timeoutMs),
   });
 
   if (!res.ok) {
