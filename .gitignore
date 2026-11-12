@@ -10,4 +10,5 @@ data/
 .vite/
 coverage/
 .workbuddy/shots/
+.workbuddy/memory/
 frontend/.tmp/

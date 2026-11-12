@@ -7,6 +7,12 @@
 - **技术方案**：`docs/技术方案.md`
 - **项目档案（唯一真相源）**：`PROJECT.md`
 
+## 界面预览
+
+| 自习室 · 樱花慢舞 | 自习室 · 星河长夜 + 月见对话 | 沉淀 · 统计与热力图 |
+|---|---|---|
+| ![自习室-樱花](docs/screenshots/study-room-sakura.png) | ![自习室-星空](docs/screenshots/study-room-star.png) | ![统计](docs/screenshots/stats.png) |
+
 ## 功能总览
 
 | 模块 | 内容 |
