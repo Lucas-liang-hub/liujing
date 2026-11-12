@@ -5,6 +5,16 @@ import { useSessionStore } from '../stores/session.js';
 const emit = defineEmits(['all-done']);
 const session = useSessionStore();
 const draft = ref('');
+const editingId = ref('');
+const editDraft = ref('');
+
+/** v-focus 局部指令：进入编辑态自动聚焦并全选 */
+const vFocus = {
+  mounted(el) {
+    el.focus();
+    el.select();
+  },
+};
 
 const progressText = computed(() =>
   session.tasksTotal ? `${session.tasksDone}/${session.tasksTotal}` : '还没有任务',
@@ -20,6 +30,21 @@ function toggle(task) {
   const wasAll = session.allTasksDone;
   session.toggleTask(task.id);
   if (!wasAll && session.allTasksDone) emit('all-done');
+}
+
+function startEdit(task) {
+  editingId.value = task.id;
+  editDraft.value = task.title;
+}
+
+function commitEdit(task) {
+  if (editingId.value !== task.id) return;
+  session.renameTask(task.id, editDraft.value);
+  editingId.value = '';
+}
+
+function cancelEdit() {
+  editingId.value = '';
 }
 </script>
 
@@ -42,7 +67,18 @@ function toggle(task) {
             <path d="M3 8.4l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <span class="title">{{ task.title }}</span>
+        <input
+          v-if="editingId === task.id"
+          v-model="editDraft"
+          v-focus
+          class="input edit-input"
+          maxlength="100"
+          aria-label="编辑任务"
+          @keydown.enter.prevent="commitEdit(task)"
+          @keydown.esc="cancelEdit"
+          @blur="commitEdit(task)"
+        />
+        <span v-else class="title" title="双击编辑" @dblclick="startEdit(task)">{{ task.title }}</span>
         <button class="remove" aria-label="删除任务" @click="session.removeTask(task.id)">×</button>
       </li>
     </ul>
@@ -144,6 +180,14 @@ function toggle(task) {
   color: var(--text);
   transition: color var(--transition);
   word-break: break-all;
+  cursor: text;
+}
+
+.edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 13px;
 }
 
 .item.done .title {

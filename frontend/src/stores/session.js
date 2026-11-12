@@ -2,24 +2,26 @@ import { defineStore } from 'pinia';
 import { computed, ref, watch } from 'vue';
 import { sessionApi } from '../api/index.js';
 import { useSceneStore } from './scene.js';
+import { useUserStore } from './user.js';
 import { computeElapsedMs, progressOf, remainingSec, toSec } from '../utils/timer.js';
 import { toLocalIso } from '../utils/format.js';
+import { rolloverItems, sanitizeTasksPayload, TASKS_LIMIT, TITLE_LIMIT, todayKey } from '../utils/tasklist.js';
 
 const TASKS_KEY = 'liujing_tasks';
 const IDLE_ALERT_MIN = 45; // 连续专注 45 分钟触发久坐提醒
 const MAX_IDLE_ALERTS = 6;
 
 function loadTasks() {
+  const empty = { date: todayKey(), updatedAt: 0, items: [] };
   try {
     const raw = localStorage.getItem(TASKS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((t) => t && typeof t.title === 'string')
-      .slice(0, 50)
-      .map((t, i) => ({ id: t.id || `t${Date.now()}-${i}`, title: t.title, done: Boolean(t.done) }));
+    const data = sanitizeTasksPayload(raw ? JSON.parse(raw) : null);
+    if (!data) return empty;
+    // 跨天翻篇：昨日已完成清空，未完成顺延
+    const today = todayKey();
+    return { date: today, updatedAt: data.updatedAt, items: rolloverItems(data.items, data.date, today) };
   } catch {
-    return [];
+    return empty;
   }
 }
 
@@ -36,7 +38,10 @@ export const useSessionStore = defineStore('session', () => {
   const tick = ref(Date.now());
   const startedAt = ref(null);
 
-  const tasks = ref(loadTasks());
+  const tasksMeta = ref(loadTasks());
+  const tasks = ref(tasksMeta.value.items);
+  const tasksDate = ref(tasksMeta.value.date);
+  const tasksUpdatedAt = ref(tasksMeta.value.updatedAt);
   const saving = ref(false);
   const lastError = ref('');
   const lastSaved = ref(null);
@@ -230,10 +235,18 @@ export const useSessionStore = defineStore('session', () => {
 
   /* ------------------------------ 任务清单 ------------------------------ */
 
+  /** 每次变更：刷新日期与更新时间戳（「今日」语义 + 跨设备同步依据） */
+  function touchTasks() {
+    tasksDate.value = todayKey();
+    tasksUpdatedAt.value = Date.now();
+    scheduleTasksSync();
+  }
+
   function addTask(title) {
     const text = String(title || '').trim();
-    if (!text || tasks.value.length >= 50) return false;
-    tasks.value.push({ id: `t${Date.now()}${Math.random().toString(16).slice(2, 6)}`, title: text.slice(0, 100), done: false });
+    if (!text || tasks.value.length >= TASKS_LIMIT) return false;
+    tasks.value.push({ id: `t${Date.now()}${Math.random().toString(16).slice(2, 6)}`, title: text.slice(0, TITLE_LIMIT), done: false });
+    touchTasks();
     return true;
   }
 
@@ -241,22 +254,86 @@ export const useSessionStore = defineStore('session', () => {
     const hit = tasks.value.find((t) => t.id === id);
     if (!hit) return;
     hit.done = !hit.done;
+    touchTasks();
     if (allTasksDone.value) emit('allTasks');
   }
 
   function removeTask(id) {
     tasks.value = tasks.value.filter((t) => t.id !== id);
+    touchTasks();
+  }
+
+  function renameTask(id, title) {
+    const text = String(title || '').trim();
+    const hit = tasks.value.find((t) => t.id === id);
+    if (!hit || !text) return false;
+    hit.title = text.slice(0, TITLE_LIMIT);
+    touchTasks();
+    return true;
   }
 
   function clearDone() {
     tasks.value = tasks.value.filter((t) => !t.done);
+    touchTasks();
+  }
+
+  /* --------------------------- 清单跨设备同步 --------------------------- */
+
+  let syncTimer = null;
+
+  /** 变更后防抖推送，避免频繁打接口 */
+  function scheduleTasksSync() {
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => syncTasksToServer(), 1200);
+  }
+
+  async function syncTasksToServer() {
+    const userStore = useUserStore();
+    if (!userStore.loggedIn) return;
+    try {
+      // dao 层对 prefs 做浅合并，只传 tasks 不会影响其他偏好
+      await userStore.updateProfile({
+        prefs: {
+          tasks: {
+            date: tasksDate.value,
+            updatedAt: tasksUpdatedAt.value,
+            items: tasks.value.map(({ title, done }) => ({ title, done })),
+          },
+        },
+      });
+    } catch {
+      /* 同步失败静默，下次变更再试；本地始终可用 */
+    }
+  }
+
+  /**
+   * 登录后初始化：本地与服务器按 updatedAt 取较新的一方。
+   * 服务器更新 → 采用服务器数据（并做跨天翻篇）；本地更新或服务器没有 → 推送本地。
+   */
+  function initTasks(remote) {
+    const data = sanitizeTasksPayload(remote);
+    if (!data || data.items.length === 0) {
+      if (tasks.value.length > 0) syncTasksToServer();
+      return;
+    }
+    if (data.updatedAt > tasksUpdatedAt.value) {
+      const today = todayKey();
+      tasks.value = rolloverItems(data.items, data.date, today);
+      tasksDate.value = today;
+      tasksUpdatedAt.value = data.updatedAt;
+    } else {
+      syncTasksToServer();
+    }
   }
 
   watch(
-    tasks,
-    (value) => {
+    [tasks, tasksDate, tasksUpdatedAt],
+    () => {
       try {
-        localStorage.setItem(TASKS_KEY, JSON.stringify(value));
+        localStorage.setItem(
+          TASKS_KEY,
+          JSON.stringify({ version: 1, date: tasksDate.value, updatedAt: tasksUpdatedAt.value, items: tasks.value }),
+        );
       } catch {
         /* 忽略存储失败 */
       }
@@ -267,6 +344,7 @@ export const useSessionStore = defineStore('session', () => {
   // 卸载/离开时释放定时器
   function dispose() {
     stopTick();
+    if (syncTimer) clearTimeout(syncTimer);
   }
 
   return {
@@ -297,7 +375,9 @@ export const useSessionStore = defineStore('session', () => {
     addTask,
     toggleTask,
     removeTask,
+    renameTask,
     clearDone,
+    initTasks,
     dispose,
   };
 });

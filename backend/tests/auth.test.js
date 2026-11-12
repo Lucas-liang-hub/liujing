@@ -105,3 +105,67 @@ describe('profile', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('今日清单同步（prefs.tasks）', () => {
+  const put = (reg, body) =>
+    request(app).put('/api/auth/profile').set('Authorization', `Bearer ${reg.body.token}`).send(body);
+
+  it('保存清单并回读，浅合并不影响其他偏好', async () => {
+    const reg = await registerUser({ username: 'tasky' });
+    await put(reg, { prefs: { focusMinutes: 40 } });
+    const res = await put(reg, {
+      prefs: { tasks: { date: '2026-11-12', updatedAt: 123456, items: [{ title: '背单词', done: true }, { title: '刷题', done: false }] } },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.user.prefs.focusMinutes).toBe(40); // 未被 tasks 更新冲掉
+    expect(res.body.user.prefs.tasks).toEqual({
+      date: '2026-11-12',
+      updatedAt: 123456,
+      items: [
+        { title: '背单词', done: true },
+        { title: '刷题', done: false },
+      ],
+    });
+  });
+
+  it('清洗：空标题剔除、超长截断、done 布尔化', async () => {
+    const reg = await registerUser({ username: 'taskclean' });
+    const res = await put(reg, {
+      prefs: { tasks: { items: [{ title: '   ' }, { title: 'x'.repeat(120), done: 'yes' }, { title: '有效' }] } },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.user.prefs.tasks.items).toHaveLength(2);
+    expect(res.body.user.prefs.tasks.items[0].title.length).toBeLessThanOrEqual(100);
+    expect(res.body.user.prefs.tasks.items[0].done).toBe(true);
+  });
+
+  it('items 非数组返回 400，超 50 条返回 400', async () => {
+    const reg = await registerUser({ username: 'taskbad' });
+    expect((await put(reg, { prefs: { tasks: { items: 'no' } } })).status).toBe(400);
+    const many = Array.from({ length: 51 }, (_, i) => ({ title: `t${i}` }));
+    expect((await put(reg, { prefs: { tasks: { items: many } } })).status).toBe(400);
+  });
+});
+
+describe('音效白名单（与前端素材对齐）', () => {
+  it('新音效 id 均可通过校验', async () => {
+    const reg = await registerUser({ username: 'soundy' });
+    for (const sound of ['waves', 'summer-night', 'fireplace', 'stream', 'wind', 'rain', 'none']) {
+      const res = await request(app)
+        .put('/api/auth/profile')
+        .set('Authorization', `Bearer ${reg.body.token}`)
+        .send({ prefs: { sound } });
+      expect(res.status).toBe(200);
+      expect(res.body.user.prefs.sound).toBe(sound);
+    }
+  });
+
+  it('未知音效返回 400', async () => {
+    const reg = await registerUser({ username: 'soundbad' });
+    const res = await request(app)
+      .put('/api/auth/profile')
+      .set('Authorization', `Bearer ${reg.body.token}`)
+      .send({ prefs: { sound: 'jazz' } });
+    expect(res.status).toBe(400);
+  });
+});

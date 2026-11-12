@@ -21,9 +21,27 @@ function sanitizePrefs(input) {
     prefs.soundOn = input.soundOn;
   }
   if (input.sound !== undefined) {
-    const allowed = ['rain', 'stream', 'wind', 'night', 'none'];
+    const allowed = ['rain', 'stream', 'waves', 'wind', 'summer-night', 'fireplace', 'none', 'night'];
     if (!allowed.includes(input.sound)) throw badRequest(`音效不合法，可选值: ${allowed.join('/')}`);
     prefs.sound = input.sound;
+  }
+
+  // 今日清单（跨设备同步），结构与前端 utils/tasklist.js 对齐
+  if (input.tasks !== undefined) {
+    const t = input.tasks;
+    if (!t || typeof t !== 'object' || Array.isArray(t)) throw badRequest('tasks 必须为对象');
+    if (!Array.isArray(t.items)) throw badRequest('tasks.items 必须为数组');
+    if (t.items.length > 50) throw badRequest('任务数量超过上限 50');
+    const date = typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? t.date : '';
+    const updatedAt = Number.isFinite(Number(t.updatedAt)) ? Math.max(0, Math.round(Number(t.updatedAt))) : 0;
+    prefs.tasks = {
+      date,
+      updatedAt,
+      items: t.items
+        .map((it) => ({ title: String(it?.title ?? '').trim().slice(0, 100), done: Boolean(it?.done) }))
+        .filter((it) => it.title)
+        .slice(0, 50),
+    };
   }
 
   const rangeCheck = (key, min, max, label) => {

@@ -95,7 +95,7 @@ async function handleEnd() {
     showToast(`已记录 ${formatDuration(result.record.durationSec)}`);
     await refreshStats();
   } else if (result?.skipped) {
-    showToast('这次不足 1 分钟，没有记录');
+    showToast('这次不足 30 秒，没有记录');
   } else if (result?.error) {
     showToast(`保存失败：${result.error}`);
   }
@@ -126,6 +126,9 @@ onMounted(async () => {
 
   await user.fetchProfile().catch(() => null);
   await yuejian.init();
+
+  // 今日清单：登录后与账号数据按更新时间合并（跨设备接力）
+  session.initTasks(prefs.value.tasks);
 
   // 偏好同步到本地状态（音效状态由 scene store 统一持有，顶部面板与设置页共享）
   if (!scene.manual) scene.setScene(prefs.value.scene, { byUser: false });
