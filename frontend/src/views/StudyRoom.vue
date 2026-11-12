@@ -88,6 +88,14 @@ function onFullscreenChange() {
   if (!document.fullscreenElement && scene.focusMode) scene.toggleFocusMode(false);
 }
 
+/* ── 防误关：计时中关闭/刷新页面前提醒（记录只入库到"结束"那一刻） ── */
+function onBeforeUnload(e) {
+  if (session.status === 'focus' || session.status === 'paused') {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+}
+
 /* ── 结束自习 ─────────────────────────────────── */
 async function handleEnd() {
   const result = await session.endSession();
@@ -123,6 +131,7 @@ function onKeydown(e) {
 onMounted(async () => {
   document.addEventListener('keydown', onKeydown);
   document.addEventListener('fullscreenchange', onFullscreenChange);
+  window.addEventListener('beforeunload', onBeforeUnload);
 
   await user.fetchProfile().catch(() => null);
   await yuejian.init();
@@ -151,6 +160,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown);
   document.removeEventListener('fullscreenchange', onFullscreenChange);
+  window.removeEventListener('beforeunload', onBeforeUnload);
   if (toastTimer) clearTimeout(toastTimer);
   session.dispose();
   yuejian.flush();

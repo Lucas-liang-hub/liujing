@@ -34,6 +34,11 @@ async function quick(text) {
   if (yuejian.typing) return;
   await yuejian.send(text, scene.current);
 }
+
+async function weekly() {
+  if (yuejian.typing) return;
+  await yuejian.greet('weekly', scene.current);
+}
 </script>
 
 <template>
@@ -63,6 +68,12 @@ async function quick(text) {
 
     <div class="quick" v-if="yuejian.messages.length < 3">
       <button v-for="q in quickLines" :key="q" class="chip" @click="quick(q)">{{ q }}</button>
+    </div>
+
+    <div class="extras">
+      <button class="chip" :disabled="yuejian.typing" title="基于本周真实学习数据生成小结" @click="weekly">
+        本周小结
+      </button>
     </div>
 
     <p v-if="yuejian.error" class="error-text">{{ yuejian.error }}</p>
@@ -211,6 +222,21 @@ async function quick(text) {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.extras {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.extras .chip {
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity var(--transition);
+}
+
+.extras .chip:hover {
+  opacity: 1;
 }
 
 .quick .chip {

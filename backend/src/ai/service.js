@@ -16,8 +16,25 @@ export function normalizeEvent(event) {
   return isValidEvent(event) ? event : 'chat';
 }
 
+/** 周小结的固定请求：数据已在 system prompt 里注入，这里只给输出要求 */
+const WEEKLY_ASK =
+  '请根据我的学习数据，给我一份本周小结：先一句对整体节奏的观察，再给一条下周的具体小建议。不超过 120 字，保持月见的语气，不要罗列原始数据。';
+
 export async function replyText({ event = 'chat', message = '', history = [], ctx = {}, maxRounds = 6 } = {}) {
   const ev = normalizeEvent(event);
+
+  if (ev === 'weekly') {
+    if (isLlmEnabled()) {
+      try {
+        const reply = await chatOnce(buildMessages({ ctx, history: [], message: WEEKLY_ASK, maxRounds }));
+        return { reply, source: 'llm', event: ev };
+      } catch (err) {
+        console.warn('[ai] 周小结 LLM 调用失败，降级到语库:', err.message);
+        return { reply: pickLine({ event: ev, scene: ctx.scene, ctx }), source: 'library', event: ev, degraded: true };
+      }
+    }
+    return { reply: pickLine({ event: ev, scene: ctx.scene, ctx }), source: 'library', event: ev };
+  }
 
   if (ev !== 'chat') {
     return { reply: pickLine({ event: ev, scene: ctx.scene, ctx }), source: 'library', event: ev };
@@ -42,6 +59,28 @@ export async function replyText({ event = 'chat', message = '', history = [], ct
  */
 export async function* replyStream({ event = 'chat', message = '', history = [], ctx = {}, maxRounds = 6 } = {}) {
   const ev = normalizeEvent(event);
+
+  if (ev === 'weekly' && isLlmEnabled()) {
+    let started = false;
+    try {
+      for await (const delta of streamChat(buildMessages({ ctx, history: [], message: WEEKLY_ASK, maxRounds }))) {
+        started = true;
+        yield { delta, source: 'llm' };
+      }
+      return;
+    } catch (err) {
+      console.warn('[ai] 周小结 LLM 流式失败:', err.message);
+      if (!started) {
+        const fallback = pickLine({ event: ev, scene: ctx.scene, ctx });
+        for (let i = 0; i < fallback.length; i += 3) {
+          yield { delta: fallback.slice(i, i + 3), source: 'library', degraded: true };
+        }
+        return;
+      }
+      yield { delta: '\n（网络有点不稳，小结先到这里。）', source: 'llm', degraded: true };
+      return;
+    }
+  }
 
   if (ev !== 'chat' || !isLlmEnabled()) {
     const text = ev === 'chat' ? ruleReply(message, ctx) : pickLine({ event: ev, scene: ctx.scene, ctx });

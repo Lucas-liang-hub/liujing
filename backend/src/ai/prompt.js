@@ -1,4 +1,5 @@
 import { greetingByHour, SCENES } from './library.js';
+import { computeGrowth } from '../utils/growth.js';
 
 /**
  * 月见「增强轨」的 prompt 工程：把用户学习画像注入 system prompt。
@@ -24,6 +25,7 @@ export function buildContext({ user, stats = {}, scene = 'sakura', now = new Dat
     tasksTotal,
     tasksDone,
     taskRate: tasksTotal ? Math.round((tasksDone / tasksTotal) * 100) : 0,
+    growth: computeGrowth({ totalSec: Number(stats.totalSec || 0), activeDays: Number(stats.activeDays || 0) }),
   };
 }
 
@@ -36,6 +38,7 @@ export function buildSystemPrompt(ctx) {
     ctx.tasksTotal > 0
       ? `今日任务完成 ${ctx.tasksDone}/${ctx.tasksTotal}（${ctx.taskRate}%）。`
       : '今日还没有建立任务清单。',
+    `当前成长值 ${ctx.growth.points}，等级「${ctx.growth.level}」${ctx.growth.nextName ? `（下一级「${ctx.growth.nextName}」需 ${ctx.growth.nextAt} 分）` : '（已至最高级）'}。`,
   ];
 
   return [

@@ -45,17 +45,29 @@ describe('POST /api/sessions', () => {
     expect(res.status).toBe(400);
   });
 
-  it('不足 1 分钟不入库', async () => {
+  it('不足 30 秒不入库（与前端门槛一致）', async () => {
     const now = new Date();
     const res = await post(
       sessionBody({
-        startedAt: new Date(now.getTime() - 30000).toISOString(),
+        startedAt: new Date(now.getTime() - 20000).toISOString(),
         endedAt: now.toISOString(),
-        durationSec: 30,
+        durationSec: 20,
       }),
     );
     expect(res.status).toBe(400);
-    expect(res.body.error.message).toContain('不足 1 分钟');
+    expect(res.body.error.message).toContain('不足 30 秒');
+  });
+
+  it('30 秒以上的短时专注正常入库', async () => {
+    const now = new Date();
+    const res = await post(
+      sessionBody({
+        startedAt: new Date(now.getTime() - 35000).toISOString(),
+        endedAt: now.toISOString(),
+        durationSec: 35,
+      }),
+    );
+    expect(res.status).toBe(201);
   });
 
   it('超过 12 小时视为异常', async () => {

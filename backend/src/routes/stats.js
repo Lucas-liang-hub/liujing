@@ -10,6 +10,7 @@ import {
   startOfWeek,
   toLocalDateTime,
 } from '../utils/time.js';
+import { computeGrowth } from '../utils/growth.js';
 
 const router = Router();
 
@@ -65,6 +66,7 @@ router.get(
       totalSessions: all.sessions,
       streak: computeStreak(dateKeys, now),
       activeDays: dateKeys.length,
+      growth: computeGrowth({ totalSec: all.sec, activeDays: dateKeys.length }),
       tasks: {
         todayTotal: todayTaskInfo.tasksTotal,
         todayDone: todayTaskInfo.tasksDone,

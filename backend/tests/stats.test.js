@@ -117,3 +117,14 @@ describe('GET /api/stats/heatmap', () => {
     expect(tooBig.body.days).toBe(365);
   });
 });
+
+describe('成长值', () => {
+  it('summary 返回成长值与等级', async () => {
+    const res = await mine('/api/stats/summary');
+    expect(res.body.growth).toBeTruthy();
+    // 测试数据：今日 90+45=135 分钟，累计 180 分钟，3 个打卡日 → 180+60=240 分
+    expect(res.body.growth.points).toBe(240);
+    expect(res.body.growth.level).toBe('涓滴');
+    expect(res.body.growth.nextName).toBe('溪流');
+  });
+});

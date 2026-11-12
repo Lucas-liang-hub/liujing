@@ -13,7 +13,7 @@ export const SCENES = {
   autumn: { name: '秋日慢行', short: '秋日' },
 };
 
-export const EVENTS = ['start', 'finish', 'idle', 'break', 'streak', 'allTasks', 'comeback', 'chat'];
+export const EVENTS = ['start', 'finish', 'idle', 'break', 'streak', 'allTasks', 'comeback', 'weekly', 'chat'];
 
 const LINES = {
   start: [
@@ -54,6 +54,12 @@ const LINES = {
     '你回来了。中间空了一段没关系，重新开始的时间永远是现在。',
     '有几天没见，我没有催你。今天能坐下来，就已经很好。',
     '断掉的连续天数可以重新长回来，不着急。',
+  ],
+  weekly: [
+    '本周小结：一共专注了 {weekMin} 分钟，其中 {activeDays} 天有记录。数字不喧哗，但它在慢慢长。',
+    '这一周 {weekMin} 分钟。有些天可能只坐了一小会儿，但坐下本身就有意义。',
+    '周报来了——本周 {weekMin} 分钟，累计约 {totalHours} 小时，最近连续 {streak} 天。稳稳的。',
+    '{activeDays} 天里攒下 {weekMin} 分钟。下周不用冲量，保持「回来坐下」就够了。',
   ],
   chat: [
     '我在听。你慢慢说。',
@@ -125,6 +131,9 @@ export function renderTemplate(line, ctx = {}) {
     streak: ctx.streak || 1,
     nickname: ctx.nickname || '你',
     focusMin: ctx.focusMin || 25,
+    weekMin: Math.max(0, Math.round(ctx.weekMin) || 0),
+    activeDays: Math.max(0, Math.round(ctx.activeDays) || 0),
+    totalHours: Math.max(0, Math.round((ctx.totalHours || 0) * 10) / 10),
   };
   return line.replace(/\{(\w+)\}/g, (match, key) => (vars[key] === undefined ? match : String(vars[key])));
 }

@@ -11,6 +11,7 @@ import {
 import { buildContext, buildMessages, buildSystemPrompt, trimHistory } from '../src/ai/prompt.js';
 import { greetingByHour, listLines, pickLineAt, renderTemplate, ruleReply, SCENES } from '../src/ai/library.js';
 import { normalizeEvent } from '../src/ai/service.js';
+import { computeGrowth } from '../src/utils/growth.js';
 
 describe('时间工具', () => {
   it('toLocalDateTime 输出本地时间字符串', () => {
@@ -169,5 +170,51 @@ describe('语库', () => {
   it('非法事件降级为 chat', () => {
     expect(normalizeEvent('unknown-event')).toBe('chat');
     expect(normalizeEvent('start')).toBe('start');
+  });
+});
+
+describe('成长值体系', () => {
+  it('专注分钟与打卡天数正确累加', () => {
+    // 90 分钟专注 + 3 天打卡 = 90 + 60 = 150 分
+    const g = computeGrowth({ totalSec: 90 * 60, activeDays: 3 });
+    expect(g.points).toBe(150);
+    expect(g.level).toBe('涓滴');
+    expect(g.nextName).toBe('溪流');
+  });
+
+  it('等级阈值正确推进', () => {
+    expect(computeGrowth({ totalSec: 0, activeDays: 0 }).level).toBe('涓滴');
+    expect(computeGrowth({ totalSec: 400 * 60, activeDays: 0 }).level).toBe('溪流');
+    expect(computeGrowth({ totalSec: 8000 * 60, activeDays: 40 }).points).toBe(8800);
+    expect(computeGrowth({ totalSec: 8000 * 60, activeDays: 40 }).level).toBe('沧海');
+  });
+
+  it('最高级没有下一级', () => {
+    const g = computeGrowth({ totalSec: 100000 * 60, activeDays: 999 });
+    expect(g.level).toBe('沧海');
+    expect(g.nextName).toBeNull();
+    expect(g.nextAt).toBeNull();
+  });
+
+  it('非法输入归零', () => {
+    expect(computeGrowth({ totalSec: -5, activeDays: -1 }).points).toBe(0);
+    expect(computeGrowth({}).points).toBe(0);
+  });
+});
+
+describe('周小结（weekly 事件）', () => {
+  it('语库模板注入周数据', () => {
+    const line = pickLineAt({
+      event: 'weekly',
+      scene: 'star',
+      index: 0,
+      ctx: { weekMin: 240, activeDays: 4, totalHours: 12.5, streak: 2 },
+    });
+    expect(line).toContain('240');
+    expect(line).toContain('4');
+  });
+
+  it('weekly 是合法事件', () => {
+    expect(normalizeEvent('weekly')).toBe('weekly');
   });
 });

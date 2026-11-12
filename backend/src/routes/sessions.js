@@ -8,7 +8,7 @@ import { toCount, validateMode, validateScene } from '../middleware/validate.js'
 const router = Router();
 
 const MAX_SESSION_SEC = 12 * 60 * 60; // 单次上限 12 小时，防挂机脏数据
-const MIN_SESSION_SEC = 60; // 少于 1 分钟不入库
+const MIN_SESSION_SEC = 30; // 与前端门槛一致：30 秒以下视为误触不入库
 
 function sanitizeTasks(tasks) {
   if (tasks === undefined || tasks === null) return [];
@@ -46,7 +46,7 @@ router.post(
         throw badRequest('上报时长与起止时间不一致，请检查计时状态');
       }
     }
-    if (derived < MIN_SESSION_SEC) throw badRequest('单次自习不足 1 分钟，不记录');
+    if (derived < MIN_SESSION_SEC) throw badRequest(`单次自习不足 ${MIN_SESSION_SEC} 秒，不记录`);
     if (derived > MAX_SESSION_SEC) throw badRequest('单次自习超过 12 小时，疑似异常记录');
 
     const done = tasks.filter((t) => t.done).length;

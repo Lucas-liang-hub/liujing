@@ -264,7 +264,13 @@ onMounted(async () => {
       <section class="card glass">
         <header class="card-head">
           <span class="panel-title">徽章</span>
-          <span class="hint">已获得 {{ unlockedCount }} / {{ badges.length }}</span>
+          <span class="hint" v-if="summary?.growth">
+            成长值 {{ summary.growth.points }} · {{ summary.growth.level }}<template v-if="summary.growth.nextName">
+              · 下一级「{{ summary.growth.nextName }}」</template
+            >
+            ｜ 已获得 {{ unlockedCount }} / {{ badges.length }}
+          </span>
+          <span class="hint" v-else>已获得 {{ unlockedCount }} / {{ badges.length }}</span>
         </header>
         <ul class="badges">
           <li v-for="b in badges" :key="b.id" class="badge" :class="{ on: b.unlocked }">
