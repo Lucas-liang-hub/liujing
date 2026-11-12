@@ -34,7 +34,7 @@ beforeAll(async () => {
   userId = reg.body.user.id;
 
   await recordAt(0, 9, 45, { scene: 'sakura', tasksTotal: 3, tasksDone: 2 });
-  await recordAt(0, 15, 45, { scene: 'deepsea' });
+  await recordAt(0, 15, 45, { scene: 'deepsea', tasksTotal: 3, tasksDone: 3 });
   await recordAt(1, 20, 30, { scene: 'star' });
   await recordAt(2, 10, 60, { scene: 'sakura' });
 });
@@ -57,11 +57,22 @@ describe('GET /api/stats/summary', () => {
     expect(res.body.activeDays).toBe(3);
   });
 
-  it('今日任务完成率正确', async () => {
+  it('今日任务以最后一条快照为准', async () => {
     const res = await mine('/api/stats/summary');
     expect(res.body.tasks.todayTotal).toBe(3);
-    expect(res.body.tasks.todayDone).toBe(2);
-    expect(res.body.tasks.todayRate).toBe(0.67);
+    expect(res.body.tasks.todayDone).toBe(3);
+    expect(res.body.tasks.todayRate).toBe(1);
+  });
+
+  it('快照求和会重复计数，但 cleared 标志正确识别当天曾清空清单', async () => {
+    const res = await mine('/api/stats/summary');
+    // 天聚合是快照求和（2+3=5 / 3+3=6），不能用它判断清空
+    const today = res.body.daily[res.body.daily.length - 1];
+    expect(today.tasksDone).toBe(5);
+    expect(today.tasksTotal).toBe(6);
+    // 但今天任一快照达成过 done>=total → cleared=1
+    expect(today.cleared).toBe(1);
+    expect(res.body.tasks.cleared).toBe(1);
   });
 
   it('近 14 天序列补零且末位为今天', async () => {

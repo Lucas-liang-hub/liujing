@@ -67,8 +67,8 @@ export const BADGES = [
     glyph: '清',
     name: '清单清空',
     desc: '某一天把任务全部划掉',
-    progress: (s) => (anyDayCleared(s) ? 1 : 0),
-    unlocked: (s) => anyDayCleared(s),
+    progress: (s, h, live) => (anyDayCleared(s, live) ? 1 : 0),
+    unlocked: (s, h, live) => anyDayCleared(s, live),
   },
   {
     id: 'earlyBird',
@@ -93,22 +93,35 @@ function hasHourRange(heatmap, from, to) {
   return heatmap.some((c) => c.hour >= from && c.hour <= to && (c.sec || 0) > 0);
 }
 
-/** 是否有任意一天把任务全部完成（先看近 14 天序列，再看今日聚合） */
-function anyDayCleared(summary) {
+/**
+ * 是否有任意一天把任务清单全部完成。
+ * 判定优先级：
+ * 1. 服务器 cleared 标志（当天任一快照达成 done>=total>0，口径最准）
+ * 2. 今日实时清单（最后一项刚勾上、还没入库时也能立即解锁）
+ * 3. 兜底：今日聚合 tasksDone>=todayTotal（兼容旧数据）
+ * @param {object} summary 统计接口返回体
+ * @param {{total:number, done:number}} [live] 今日实时清单状态（来自 session store）
+ */
+function anyDayCleared(summary, live) {
   const daily = Array.isArray(summary.daily) ? summary.daily : [];
-  if (daily.some((d) => (d.tasksTotal || 0) > 0 && (d.tasksDone || 0) >= (d.tasksTotal || 0))) return true;
+  if (daily.some((d) => d.cleared === 1 || d.cleared === true)) return true;
+  // 兜底：无 cleared 字段的旧数据沿用求和口径（done>=total 只可能发生在全部快照清空时）
+  if (daily.some((d) => d.cleared === undefined && (d.tasksTotal || 0) > 0 && (d.tasksDone || 0) >= (d.tasksTotal || 0))) return true;
+  if (live && live.total > 0 && live.done >= live.total) return true;
   const today = summary.tasks || {};
+  if (today.cleared === 1 || today.cleared === true) return true;
   return (today.todayTotal || 0) > 0 && (today.todayDone || 0) >= (today.todayTotal || 0);
 }
 
 /**
  * @param {object} summary /api/stats/summary 返回体
  * @param {Array<{weekday:number,hour:number,sec:number}>} heatmapCells
+ * @param {{total:number, done:number}} [liveTasks] 今日实时清单（可选，勾完最后一项无需入库即可解锁）
  */
-export function evaluateBadges(summary = {}, heatmapCells = []) {
+export function evaluateBadges(summary = {}, heatmapCells = [], liveTasks = null) {
   return BADGES.map((badge) => {
-    const unlocked = Boolean(badge.unlocked(summary, heatmapCells));
-    const progress = unlocked ? 1 : Number(badge.progress(summary, heatmapCells).toFixed(2));
+    const unlocked = Boolean(badge.unlocked(summary, heatmapCells, liveTasks));
+    const progress = unlocked ? 1 : Number(badge.progress(summary, heatmapCells, liveTasks).toFixed(2));
     return {
       id: badge.id,
       glyph: badge.glyph,

@@ -39,8 +39,35 @@ describe('evaluateBadges', () => {
     expect(get(badges, 'tasksClear').unlocked).toBe(true);
   });
 
-  it('任务没做完不解锁清单徽章', () => {
-    const badges = evaluateBadges({ daily: [{ tasksTotal: 3, tasksDone: 2 }], tasks: { todayTotal: 3, todayDone: 2 } }, []);
+  it('快照求和导致 done<total 时，cleared 标志仍能解锁', () => {
+    // 真实场景：上午快照 2/3、下午快照 3/3，求和 5/6，但当天曾清空
+    const badges = evaluateBadges(
+      { daily: [{ tasksDone: 5, tasksTotal: 6, cleared: 1 }], tasks: { todayDone: 3, todayTotal: 3, cleared: 1 } },
+      [],
+    );
+    expect(get(badges, 'tasksClear').unlocked).toBe(true);
+  });
+
+  it('任务没做完且无 cleared 标志不解锁', () => {
+    const badges = evaluateBadges(
+      { daily: [{ tasksTotal: 3, tasksDone: 2, cleared: 0 }], tasks: { todayTotal: 3, todayDone: 2, cleared: 0 } },
+      [],
+    );
+    expect(get(badges, 'tasksClear').unlocked).toBe(false);
+  });
+
+  it('今日实时清单全部勾完，无需入库即解锁', () => {
+    // 服务器数据还是旧的（快照 1/3），但当前清单已全部划掉
+    const badges = evaluateBadges(
+      { daily: [{ tasksTotal: 3, tasksDone: 1 }], tasks: { todayTotal: 3, todayDone: 1 } },
+      [],
+      { total: 3, done: 3 },
+    );
+    expect(get(badges, 'tasksClear').unlocked).toBe(true);
+  });
+
+  it('实时清单没做完不影响判定', () => {
+    const badges = evaluateBadges({}, [], { total: 3, done: 2 });
     expect(get(badges, 'tasksClear').unlocked).toBe(false);
   });
 

@@ -8,7 +8,6 @@ import {
   startOfDay,
   startOfMonth,
   startOfWeek,
-  toDateKey,
   toLocalDateTime,
 } from '../utils/time.js';
 
@@ -29,7 +28,7 @@ router.get(
     const begin = new Date('2000-01-01T00:00:00');
     const tomorrow = addDays(dayStart, 1);
 
-    const [today, week, month, all, daily, scenes, dateKeys] = await Promise.all([
+    const [today, week, month, all, daily, scenes, dateKeys, todayTaskInfo] = await Promise.all([
       statsDao.totals(userId, toLocalDateTime(dayStart), toLocalDateTime(tomorrow)),
       statsDao.totals(userId, toLocalDateTime(weekStart), toLocalDateTime(tomorrow)),
       statsDao.totals(userId, toLocalDateTime(monthStart), toLocalDateTime(tomorrow)),
@@ -37,6 +36,7 @@ router.get(
       statsDao.dailyTotals(userId, toLocalDateTime(addDays(dayStart, -13)), toLocalDateTime(tomorrow)),
       statsDao.sceneTotals(userId, toLocalDateTime(addDays(dayStart, -29))),
       recordDao.listDateKeys(userId),
+      statsDao.todayTasks(userId, toLocalDateTime(dayStart), toLocalDateTime(tomorrow)),
     ]);
 
     // 近 14 天补零，前端可直接画柱状图
@@ -49,11 +49,12 @@ router.get(
         sessions: hit?.sessions || 0,
         tasksDone: hit?.tasksDone || 0,
         tasksTotal: hit?.tasksTotal || 0,
+        cleared: hit?.cleared || 0,
       };
     });
 
-    const todayTasks = dailyMap.get(toDateKey(now)) || { tasksDone: 0, tasksTotal: 0 };
-    const taskRate = todayTasks.tasksTotal ? todayTasks.tasksDone / todayTasks.tasksTotal : 0;
+    // 今日任务率以「最后一条快照」为准（反映当前清单状态）
+    const taskRate = todayTaskInfo.tasksTotal ? todayTaskInfo.tasksDone / todayTaskInfo.tasksTotal : 0;
 
     res.json({
       todaySec: today.sec,
@@ -65,9 +66,10 @@ router.get(
       streak: computeStreak(dateKeys, now),
       activeDays: dateKeys.length,
       tasks: {
-        todayTotal: todayTasks.tasksTotal,
-        todayDone: todayTasks.tasksDone,
+        todayTotal: todayTaskInfo.tasksTotal,
+        todayDone: todayTaskInfo.tasksDone,
         todayRate: Math.round(taskRate * 100) / 100,
+        cleared: todayTaskInfo.cleared, // 今天任一时点曾全部完成
       },
       daily: dailySeries,
       scenes,

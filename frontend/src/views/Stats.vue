@@ -6,6 +6,7 @@ import ChartBox from '../components/ChartBox.vue';
 import { sessionApi, statsApi } from '../api/index.js';
 import { useUserStore } from '../stores/user.js';
 import { useSceneStore } from '../stores/scene.js';
+import { useSessionStore } from '../stores/session.js';
 import { getSceneMeta, SCENE_META } from '../scenes/index.js';
 import { formatDateCn, formatDuration, formatTime, formatDateShort, WEEKDAYS, toHours } from '../utils/format.js';
 import { evaluateBadges, countUnlocked } from '../utils/badges.js';
@@ -14,6 +15,7 @@ import { CHART_LINE, CHART_TEXT, tooltipStyle } from '../utils/echarts.js';
 const router = useRouter();
 const user = useUserStore();
 const scene = useSceneStore();
+const session = useSessionStore();
 
 const summary = ref(null);
 const heat = ref(null);
@@ -43,7 +45,9 @@ function goalText(current, goal) {
   return `目标 ${pct}%`;
 }
 
-const badges = computed(() => evaluateBadges(summary.value || {}, heat.value?.cells || []));
+// 实时清单状态：最后一项刚勾上、还没入库时，徽章也能立即解锁
+const liveTasks = computed(() => ({ total: session.tasksTotal, done: session.tasksDone }));
+const badges = computed(() => evaluateBadges(summary.value || {}, heat.value?.cells || [], liveTasks.value));
 const unlockedCount = computed(() => countUnlocked(badges.value));
 
 const barOption = computed(() => {

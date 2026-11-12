@@ -164,7 +164,11 @@ export const statsDao = {
     return { sec: num(row?.sec), sessions: num(row?.sessions) };
   },
 
-  /** 按天聚合（时间区间内） */
+  /**
+   * 按天聚合（时间区间内）。
+   * 注意 tasksDone/tasksTotal 是「快照求和」（一天多条记录会把同一份清单算多次），
+   * 只可用于趋势展示；「当天是否清空清单」须看 cleared 标志（任一快照达成即算）。
+   */
   async dailyTotals(userId, from, to) {
     const db = await getDb();
     const rows = await db.query(
@@ -172,7 +176,8 @@ export const statsDao = {
               COALESCE(SUM(duration_sec), 0) AS sec,
               COUNT(*) AS sessions,
               COALESCE(SUM(tasks_done), 0) AS done,
-              COALESCE(SUM(tasks_total), 0) AS total
+              COALESCE(SUM(tasks_total), 0) AS total,
+              COALESCE(MAX(CASE WHEN tasks_total > 0 AND tasks_done >= tasks_total THEN 1 ELSE 0 END), 0) AS cleared
          FROM study_records
         WHERE user_id = ? AND started_at >= ? AND started_at < ?
         GROUP BY d ORDER BY d ASC`,
@@ -184,7 +189,32 @@ export const statsDao = {
       sessions: num(r.sessions),
       tasksDone: num(r.done),
       tasksTotal: num(r.total),
+      cleared: num(r.cleared),
     }));
+  },
+
+  /** 今日任务概览：以当天最后一条快照为「当前清单状态」，cleared 表示今天任一时点曾全部完成 */
+  async todayTasks(userId, from, to) {
+    const db = await getDb();
+    const [latest, flag] = await Promise.all([
+      db.get(
+        `SELECT tasks_done, tasks_total FROM study_records
+          WHERE user_id = ? AND started_at >= ? AND started_at < ?
+          ORDER BY started_at DESC, id DESC LIMIT 1`,
+        [userId, from, to],
+      ),
+      db.get(
+        `SELECT COALESCE(MAX(CASE WHEN tasks_total > 0 AND tasks_done >= tasks_total THEN 1 ELSE 0 END), 0) AS cleared
+           FROM study_records
+          WHERE user_id = ? AND started_at >= ? AND started_at < ?`,
+        [userId, from, to],
+      ),
+    ]);
+    return {
+      tasksDone: num(latest?.tasks_done),
+      tasksTotal: num(latest?.tasks_total),
+      cleared: num(flag?.cleared),
+    };
   },
 
   /** 场景分布 */
