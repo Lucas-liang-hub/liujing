@@ -109,6 +109,8 @@ async function save() {
   saving.value = true;
   error.value = '';
   try {
+    // 只在真的修改了默认场景时才应用，避免「没动下拉框直接保存」把自习室手动选的场景冲掉
+    const sceneChanged = form.scene !== user.prefs.scene;
     await user.updateProfile({
       nickname: form.nickname.trim() || undefined,
       prefs: {
@@ -121,7 +123,7 @@ async function save() {
         dailyGoalMinutes: Number(form.dailyGoalMinutes),
       },
     });
-    scene.setScene(form.scene);
+    if (sceneChanged) scene.setScene(form.scene);
     savedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   } catch (err) {
     error.value = err.message;
