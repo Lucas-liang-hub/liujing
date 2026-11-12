@@ -17,6 +17,9 @@ const browser = await puppeteer.launch({
 
 const page = await browser.newPage();
 const errors = [];
+// 专注计时中整页导航会触发 StudyRoom 的 beforeunload 防误关确认框，
+// 无头模式下必须自动接受，否则导航被挂起直到超时（产品行为本身是正确的）。
+page.on('dialog', (d) => d.accept().catch(() => {}));
 page.on('console', (m) => {
   if (m.type() === 'error') errors.push(`[console] ${m.text()}`);
 });
