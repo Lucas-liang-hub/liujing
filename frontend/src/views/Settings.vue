@@ -6,8 +6,6 @@ import { useUserStore } from '../stores/user.js';
 import { useSceneStore } from '../stores/scene.js';
 import { useYuejianStore } from '../stores/yuejian.js';
 import { SCENE_META } from '../scenes/index.js';
-import SoundMenu from '../components/SoundMenu.vue';
-import { getAmbient } from '../utils/ambient.js';
 
 const router = useRouter();
 const user = useUserStore();
@@ -37,15 +35,6 @@ function fill() {
   form.focusMinutes = p.focusMinutes;
   form.breakMinutes = p.breakMinutes;
   form.dailyGoalMinutes = p.dailyGoalMinutes;
-  // 音效状态直接读写 scene store，与顶部面板保持同一份真相
-  scene.setSoundType(p.sound || 'rain');
-  scene.setVolume(p.volume ?? 0.5);
-  scene.toggleSound(Boolean(p.soundOn));
-  if (p.soundOn) {
-    const ambient = getAmbient();
-    ambient.setVolume(scene.volume);
-    ambient.play(scene.soundType === 'none' ? 'rain' : scene.soundType);
-  }
 }
 
 async function save() {
@@ -152,14 +141,6 @@ defineExpose({ fill });
           </label>
         </div>
         <p class="hint">目标会显示在计时器下方，作为当天进度的参照。</p>
-      </section>
-
-      <section class="card glass">
-        <header class="card-head">
-          <span class="panel-title">环境音</span>
-          <span class="hint">点击即试听，与自习室顶部音效按钮同步</span>
-        </header>
-        <SoundMenu />
       </section>
 
       <section class="card glass">
