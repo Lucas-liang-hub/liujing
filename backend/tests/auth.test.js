@@ -99,6 +99,16 @@ describe('profile', () => {
     expect(res.status).toBe(400);
   });
 
+  it('空字符串昵称表示清空（前端回退显示用户名）', async () => {
+    const reg = await registerUser({ username: 'kate', nickname: '大王' });
+    const res = await request(app)
+      .put('/api/auth/profile')
+      .set('Authorization', `Bearer ${reg.body.token}`)
+      .send({ nickname: '', prefs: { scene: 'sakura' } });
+    expect(res.status).toBe(200);
+    expect(res.body.user.nickname).toBe('');
+  });
+
   it('空更新返回 400', async () => {
     const reg = await registerUser({ username: 'jack' });
     const res = await request(app).put('/api/auth/profile').set('Authorization', `Bearer ${reg.body.token}`).send({});

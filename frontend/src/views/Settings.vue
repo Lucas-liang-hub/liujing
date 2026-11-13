@@ -112,7 +112,8 @@ async function save() {
     // 只在真的修改了默认场景时才应用，避免「没动下拉框直接保存」把自习室手动选的场景冲掉
     const sceneChanged = form.scene !== user.prefs.scene;
     await user.updateProfile({
-      nickname: form.nickname.trim() || undefined,
+      // 空字符串表示「清空昵称」，必须原样提交；不能转成 undefined，否则字段被丢弃、后端保持原值
+      nickname: form.nickname.trim(),
       prefs: {
         scene: form.scene,
         sound: scene.soundType,
