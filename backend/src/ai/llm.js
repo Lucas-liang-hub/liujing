@@ -1,4 +1,3 @@
-import { config } from '../config/index.js';
 import { currentLlmConfigSync } from './runtime.js';
 
 /**
@@ -10,22 +9,15 @@ export function isLlmEnabled() {
   return Boolean(currentLlmConfigSync().apiKey);
 }
 
-function endpoint() {
-  return `${currentLlmConfigSync().baseUrl}/chat/completions`;
-}
-
-function headers() {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${currentLlmConfigSync().apiKey}`,
-  };
-}
-
-async function request(messages, stream) {
-  const cfg = currentLlmConfigSync();
-  const res = await fetch(endpoint(), {
+async function request(messages, stream, override) {
+  // override 用于「连接测试」时验证尚未保存的候选配置，不落库
+  const cfg = override ? { ...currentLlmConfigSync(), ...override } : currentLlmConfigSync();
+  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: headers(),
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cfg.apiKey}`,
+    },
     body: JSON.stringify({
       model: cfg.model,
       messages,
@@ -43,9 +35,9 @@ async function request(messages, stream) {
   return res;
 }
 
-/** 非流式：一次性拿到完整回复 */
-export async function chatOnce(messages) {
-  const res = await request(messages, false);
+/** 非流式：一次性拿到完整回复；override 可传入候选配置做连通性测试 */
+export async function chatOnce(messages, override) {
+  const res = await request(messages, false, override);
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content;
   if (!content) throw new Error('LLM 返回内容为空');

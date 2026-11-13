@@ -105,6 +105,49 @@ describe('LLM 运行时配置 /api/ai/llm', () => {
     expect(cfg.body.llmEnabled).toBe(true);
   });
 
+  it('只换模型/地址时无需重新粘贴 Key，沿用当前 Key', async () => {
+    const saved = await put({ apiKey: 'sk-abcdef1234567890abcd', model: 'deepseek-chat' });
+    const masked = saved.body.keyMasked;
+
+    const res = await put({ model: 'deepseek-reasoner' });
+    expect(res.status).toBe(200);
+    expect(res.body.model).toBe('deepseek-reasoner');
+    expect(res.body.keyMasked).toBe(masked); // Key 未变
+    expect(res.body.configured).toBe(true);
+  });
+
+  it('测试连接优先使用表单里未保存的候选配置', async () => {
+    const originalFetch = globalThis.fetch;
+    const seen = {};
+    globalThis.fetch = async (url, opts) => {
+      seen.url = url;
+      seen.auth = opts?.headers?.Authorization;
+      seen.model = JSON.parse(opts.body).model;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '连接正常' } }] }),
+        text: async () => '',
+      };
+    };
+
+    try {
+      const res = await request(app)
+        .post('/api/ai/llm/test')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ apiKey: 'sk-candidate-99998888', baseUrl: 'https://example.com/v1', model: 'candidate-model' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.tested.model).toBe('candidate-model');
+      expect(seen.url).toBe('https://example.com/v1/chat/completions');
+      expect(seen.auth).toBe('Bearer sk-candidate-99998888');
+      expect(seen.model).toBe('candidate-model');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('删除后回落 env，llmEnabled 回到 .env 的状态', async () => {
     const res = await del();
     expect(res.status).toBe(200);

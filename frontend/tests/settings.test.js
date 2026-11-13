@@ -2,10 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 
-/* ── mock API 层：捕获 updateProfile 实际提交的载荷 ───────── */
+/* ── mock API 层：捕获 updateProfile / aiApi 实际提交的载荷 ───────── */
 const updateProfileMock = vi.fn(async (payload) => ({
   user: { id: 1, username: 'yyy', nickname: payload.nickname ?? '大王', prefs: payload.prefs ?? {} },
 }));
+const getLlmMock = vi.fn(async () => ({ configured: false, source: 'env', baseUrl: '', model: '' }));
+const setLlmMock = vi.fn(async (payload) => ({
+  configured: true,
+  source: 'runtime',
+  baseUrl: payload.baseUrl || 'https://api.deepseek.com/v1',
+  model: payload.model || 'deepseek-chat',
+  keyMasked: 'sk-abc****wxyz',
+}));
+const testLlmMock = vi.fn(async () => ({ ok: true, reply: '连接正常', tested: { model: 'deepseek-chat' } }));
 
 vi.mock('../src/api/index.js', () => ({
   authApi: {
@@ -16,10 +25,10 @@ vi.mock('../src/api/index.js', () => ({
   statsApi: {},
   aiApi: {
     config: vi.fn(async () => ({ greeting: '' })),
-    getLlm: vi.fn(async () => ({ configured: false, source: 'env' })),
-    setLlm: vi.fn(async () => ({ configured: true })),
-    clearLlm: vi.fn(async () => ({ configured: false })),
-    testLlm: vi.fn(async () => ({ ok: true, reply: 'ok' })),
+    getLlm: (...args) => getLlmMock(...args),
+    setLlm: (...args) => setLlmMock(...args),
+    clearLlm: vi.fn(async () => ({ configured: false, source: 'env', baseUrl: '', model: '' })),
+    testLlm: (...args) => testLlmMock(...args),
     chat: vi.fn(async () => ({})),
     streamChat: vi.fn(),
   },
@@ -110,5 +119,59 @@ describe('设置页 · 昵称保存', () => {
     await flushPromises();
     expect(wrapper.find('.field-note').text()).toContain('已');
     expect(wrapper.find('.field-note').text()).not.toContain('未保存');
+  });
+});
+
+describe('设置页 · 月见大模型配置', () => {
+  const llmInputs = (wrapper) => wrapper.findAll('.llm-grid .input');
+  const llmBtn = (wrapper, i) => wrapper.findAll('.llm-actions .btn')[i];
+
+  beforeEach(() => {
+    setLlmMock.mockClear();
+    testLlmMock.mockClear();
+    getLlmMock.mockClear();
+    localStorage.clear();
+  });
+
+  it('已配置过 Key 时，留空也能只改模型/地址', async () => {
+    getLlmMock.mockResolvedValue({ configured: true, source: 'env', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' });
+    const wrapper = await mountSettings();
+    await llmInputs(wrapper)[2].setValue('deepseek-reasoner');
+    await llmBtn(wrapper, 0).trigger('click');
+    await flushPromises();
+
+    expect(setLlmMock).toHaveBeenCalledTimes(1);
+    const payload = setLlmMock.mock.calls[0][0];
+    expect(payload.apiKey).toBe('');
+    expect(payload.model).toBe('deepseek-reasoner');
+  });
+
+  it('未配置且 Key 为空时给出提示，不发请求', async () => {
+    getLlmMock.mockResolvedValue({ configured: false, source: 'env', baseUrl: '', model: '' });
+    const wrapper = await mountSettings();
+    await llmBtn(wrapper, 0).trigger('click');
+    await flushPromises();
+
+    expect(setLlmMock).not.toHaveBeenCalled();
+    expect(wrapper.find('.llm-actions .hint').text()).toContain('请填写 API Key');
+  });
+
+  it('测试连接提交的是输入框里尚未保存的配置', async () => {
+    getLlmMock.mockResolvedValue({ configured: false, source: 'env', baseUrl: '', model: '' });
+    const wrapper = await mountSettings();
+    const [key, baseUrl, model] = llmInputs(wrapper);
+    await key.setValue('sk-typed-but-unsaved');
+    await baseUrl.setValue('https://dashscope.aliyuncs.com/compatible-mode/v1');
+    await model.setValue('qwen-plus');
+    await llmBtn(wrapper, 1).trigger('click');
+    await flushPromises();
+
+    expect(testLlmMock).toHaveBeenCalledTimes(1);
+    expect(testLlmMock.mock.calls[0][0]).toEqual({
+      apiKey: 'sk-typed-but-unsaved',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+    });
+    expect(wrapper.find('.llm-actions .hint').text()).toContain('连接正常');
   });
 });

@@ -30,39 +30,42 @@ const llmStatus = ref(null); // { configured, source, baseUrl, model, keyMasked 
 const llmForm = reactive({ apiKey: '', baseUrl: '', model: '' });
 const llmSaving = ref(false);
 const llmMsg = ref('');
+const llmMsgOk = ref(true);
 
 async function loadLlm() {
   try {
     llmStatus.value = await aiApi.getLlm();
-    if (llmStatus.value.source === 'env') {
-      llmForm.baseUrl = llmStatus.value.baseUrl || '';
-      llmForm.model = llmStatus.value.model || '';
-    } else {
-      llmForm.baseUrl = llmStatus.value.baseUrl || '';
-      llmForm.model = llmStatus.value.model || '';
-    }
+    llmForm.baseUrl = llmStatus.value.baseUrl || '';
+    llmForm.model = llmStatus.value.model || '';
   } catch {
     llmStatus.value = null;
   }
 }
 
 async function saveLlm() {
-  if (!llmForm.apiKey.trim()) {
+  const key = llmForm.apiKey.trim();
+  // 已配置过 Key 时允许只换模型/地址，不必重新粘贴 Key
+  if (!key && !llmStatus.value?.configured) {
     llmMsg.value = '请填写 API Key';
+    llmMsgOk.value = false;
     return;
   }
   llmSaving.value = true;
   llmMsg.value = '';
   try {
     llmStatus.value = await aiApi.setLlm({
-      apiKey: llmForm.apiKey.trim(),
+      apiKey: key,
       baseUrl: llmForm.baseUrl.trim(),
       model: llmForm.model.trim(),
     });
     llmForm.apiKey = '';
+    llmForm.baseUrl = llmStatus.value.baseUrl || '';
+    llmForm.model = llmStatus.value.model || '';
     await yuejian.init();
+    llmMsgOk.value = true;
     llmMsg.value = '已生效，月见现在用这个模型说话了';
   } catch (err) {
+    llmMsgOk.value = false;
     llmMsg.value = err.message;
   } finally {
     llmSaving.value = false;
@@ -74,9 +77,13 @@ async function resetLlm() {
   llmMsg.value = '';
   try {
     llmStatus.value = await aiApi.clearLlm();
+    llmForm.baseUrl = llmStatus.value.baseUrl || '';
+    llmForm.model = llmStatus.value.model || '';
     await yuejian.init();
+    llmMsgOk.value = true;
     llmMsg.value = llmStatus.value.configured ? '已恢复为 .env 配置' : '已清除，月见回到规则语库陪伴';
   } catch (err) {
+    llmMsgOk.value = false;
     llmMsg.value = err.message;
   } finally {
     llmSaving.value = false;
@@ -87,9 +94,17 @@ async function testLlm() {
   llmSaving.value = true;
   llmMsg.value = '';
   try {
-    const res = await aiApi.testLlm();
-    llmMsg.value = res.ok ? `连接正常，模型回复：${res.reply}` : `连接失败：${res.error}`;
+    // 带上表单里尚未保存的值：测的就是你眼前这份配置，而不是已生效的旧配置
+    const res = await aiApi.testLlm({
+      apiKey: llmForm.apiKey.trim(),
+      baseUrl: llmForm.baseUrl.trim(),
+      model: llmForm.model.trim(),
+    });
+    const where = res.tested ? `（${res.tested.model}）` : '';
+    llmMsgOk.value = Boolean(res.ok);
+    llmMsg.value = res.ok ? `连接正常${where}，模型回复：${res.reply}` : `连接失败${where}：${res.error}`;
   } catch (err) {
+    llmMsgOk.value = false;
     llmMsg.value = err.message;
   } finally {
     llmSaving.value = false;
@@ -265,7 +280,13 @@ defineExpose({ fill });
         <div class="llm-grid">
           <label class="field">
             <span class="field-label">API Key</span>
-            <input v-model="llmForm.apiKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
+            <input
+              v-model="llmForm.apiKey"
+              class="input"
+              type="password"
+              autocomplete="off"
+              :placeholder="llmStatus?.configured ? '留空表示沿用当前 Key' : 'sk-...'"
+            />
           </label>
           <label class="field">
             <span class="field-label">接口地址（OpenAI 兼容）</span>
@@ -287,10 +308,10 @@ defineExpose({ fill });
           </button>
           <button class="btn btn-ghost" :disabled="llmSaving" @click="testLlm">测试连接</button>
           <button class="btn btn-ghost" :disabled="llmSaving" @click="resetLlm">恢复 .env 默认</button>
-          <span v-if="llmMsg" class="hint">{{ llmMsg }}</span>
+          <span v-if="llmMsg" class="hint" :class="{ 'msg-err': !llmMsgOk }">{{ llmMsg }}</span>
         </div>
 
-        <p class="hint">Key 只保存在后端，页面与网络传输中仅显示打码值；切换立即生效，无需重启。</p>
+        <p class="hint">Key 只保存在后端，页面与网络传输中仅显示打码值；切换立即生效，无需重启。「测试连接」测的是当前输入框里的配置，未保存也可以先试。</p>
       </section>
 
       <div class="actions">
@@ -483,6 +504,10 @@ defineExpose({ fill });
   gap: 10px;
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+.msg-err {
+  color: #ff9b9b;
 }
 
 code {

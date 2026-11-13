@@ -87,8 +87,10 @@ router.put(
     const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl.trim() : '';
     const model = typeof body.model === 'string' ? body.model.trim() : '';
 
-    if (!apiKey) throw badRequest('apiKey 不能为空');
-    if (apiKey.length < 8 || apiKey.length > 200) throw badRequest('apiKey 长度不合法');
+    // 允许「只换模型/地址不重新粘贴 Key」：Key 为空时沿用当前生效的 Key
+    const current = await currentLlmConfig();
+    if (!apiKey && !current.apiKey) throw badRequest('apiKey 不能为空');
+    if (apiKey && (apiKey.length < 8 || apiKey.length > 200)) throw badRequest('apiKey 长度不合法');
     if (baseUrl) {
       try {
         const u = new URL(baseUrl);
@@ -100,7 +102,7 @@ router.put(
     if (model && model.length > 100) throw badRequest('model 过长');
 
     const saved = await setLlmOverride({
-      apiKey,
+      apiKey: apiKey || current.apiKey,
       baseUrl: baseUrl || undefined,
       model: model || undefined,
     });
@@ -130,17 +132,36 @@ router.delete(
   }),
 );
 
-/** 连通性测试：用当前配置发一条最小请求，直接暴露 Key/地址/模型是否可用 */
+/** 连通性测试：优先用请求里带的「尚未保存」的表单值，缺省回落到当前生效配置 */
 router.post(
   '/llm/test',
   asyncHandler(async (req, res) => {
+    const body = req.body || {};
     const cfg = await currentLlmConfig();
-    if (!cfg.apiKey) throw badRequest('尚未配置 apiKey');
+
+    const candidate = {};
+    if (typeof body.apiKey === 'string' && body.apiKey.trim()) candidate.apiKey = body.apiKey.trim();
+    if (typeof body.baseUrl === 'string' && body.baseUrl.trim()) {
+      try {
+        const u = new URL(body.baseUrl.trim());
+        if (!['http:', 'https:'].includes(u.protocol)) throw new Error('protocol');
+        candidate.baseUrl = body.baseUrl.trim();
+      } catch {
+        throw badRequest('baseUrl 必须是合法的 http(s) 地址');
+      }
+    }
+    if (typeof body.model === 'string' && body.model.trim()) candidate.model = body.model.trim();
+
+    const effective = { ...cfg, ...candidate };
+    if (!effective.apiKey) throw badRequest('尚未配置 apiKey');
+    // 只把与当前配置不同的部分作为 override 传入，避免无谓合并
+    const override = Object.keys(candidate).length ? candidate : undefined;
+
     try {
-      const reply = await chatOnce([{ role: 'user', content: '请只回复四个字：连接正常' }]);
-      res.json({ ok: true, reply: reply.slice(0, 60) });
+      const reply = await chatOnce([{ role: 'user', content: '请只回复四个字：连接正常' }], override);
+      res.json({ ok: true, reply: reply.slice(0, 60), tested: { model: effective.model, baseUrl: effective.baseUrl } });
     } catch (err) {
-      res.json({ ok: false, error: err.message });
+      res.json({ ok: false, error: err.message, tested: { model: effective.model, baseUrl: effective.baseUrl } });
     }
   }),
 );
