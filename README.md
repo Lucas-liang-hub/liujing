@@ -41,6 +41,8 @@ npm run dev
 
 打开 http://localhost:5173 ，注册即可使用。
 
+> 日常使用建议后端用 `npm start`（不带 `--watch`）：`npm run dev` 会监听源码，Windows 上偶发无关文件事件会让服务自动重启，重启窗口内的保存请求会返回 500。开发改代码时再用 `npm run dev`。
+
 ## 切换 MySQL 8（答辩 / 部署）
 
 编辑 `backend/.env`（参考 `.env.example`）：

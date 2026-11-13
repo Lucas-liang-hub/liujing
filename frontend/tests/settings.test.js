@@ -40,6 +40,7 @@ import { useUserStore } from '../src/stores/user.js';
 async function mountSettings() {
   const pinia = createPinia();
   setActivePinia(pinia);
+  localStorage.setItem('liujing_token', 'test-token'); // 让 fetchProfile 真正拉取画像
   const wrapper = mount(Settings, { global: { plugins: [pinia] } });
   await flushPromises();
   return wrapper;
@@ -85,5 +86,29 @@ describe('设置页 · 昵称保存', () => {
     const user = useUserStore();
     expect(user.user.nickname).toBe('');
     expect(user.nickname).toBe('yyy'); // computed 兜底：空昵称回退用户名
+  });
+
+  it('在昵称框按回车即可保存（不必滚到底部点按钮）', async () => {
+    const wrapper = await mountSettings();
+    const input = wrapper.find('input.input');
+    await input.setValue('回车改名');
+    await input.trigger('keyup.enter');
+    await flushPromises();
+
+    expect(updateProfileMock).toHaveBeenCalledTimes(1);
+    expect(updateProfileMock.mock.calls[0][0].nickname).toBe('回车改名');
+  });
+
+  it('改动后提示未保存，保存后提示已保存', async () => {
+    const wrapper = await mountSettings();
+    const input = wrapper.find('input.input');
+
+    await input.setValue('改了一半');
+    expect(wrapper.find('.field-note').text()).toContain('未保存');
+
+    await input.trigger('keyup.enter');
+    await flushPromises();
+    expect(wrapper.find('.field-note').text()).toContain('已');
+    expect(wrapper.find('.field-note').text()).not.toContain('未保存');
   });
 });

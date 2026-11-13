@@ -105,6 +105,27 @@ function fill() {
   form.dailyGoalMinutes = p.dailyGoalMinutes;
 }
 
+/** 表单是否与已保存状态不一致（用于「未保存」提醒） */
+const dirty = computed(() => {
+  if (!user.user) return false;
+  const p = user.prefs;
+  return (
+    form.nickname.trim() !== (user.user.nickname || '') ||
+    form.scene !== p.scene ||
+    Number(form.focusMinutes) !== Number(p.focusMinutes) ||
+    Number(form.breakMinutes) !== Number(p.breakMinutes) ||
+    Number(form.dailyGoalMinutes) !== Number(p.dailyGoalMinutes)
+  );
+});
+
+/** 昵称框下方的一句话状态：失败 > 未保存 > 已保存 */
+const saveHint = computed(() => {
+  if (error.value) return `保存失败：${error.value}`;
+  if (dirty.value) return '有未保存的修改，按回车或点底部「保存设置」';
+  if (savedAt.value) return `已于 ${savedAt.value} 保存`;
+  return '';
+});
+
 async function save() {
   saving.value = true;
   error.value = '';
@@ -125,6 +146,8 @@ async function save() {
       },
     });
     if (sceneChanged) scene.setScene(form.scene);
+    // 以服务端返回值回填，保证输入框与真实存储一致（例如首尾空格被裁掉、清空后为空）
+    form.nickname = user.user?.nickname || '';
     savedAt.value = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   } catch (err) {
     error.value = err.message;
@@ -164,7 +187,14 @@ defineExpose({ fill });
         <div class="row">
           <label class="field grow">
             <span class="field-label">昵称</span>
-            <input v-model="form.nickname" class="input" maxlength="20" placeholder="月见会这样称呼你" />
+            <input
+              v-model="form.nickname"
+              class="input"
+              maxlength="20"
+              placeholder="月见会这样称呼你"
+              @keyup.enter="save"
+            />
+            <span v-if="saveHint" class="field-note" :class="{ err: error }">{{ saveHint }}</span>
           </label>
           <div class="field">
             <span class="field-label">用户名</span>
@@ -201,15 +231,15 @@ defineExpose({ fill });
         <div class="row">
           <label class="field">
             <span class="field-label">专注时长（分钟）</span>
-            <input v-model.number="form.focusMinutes" class="input" type="number" min="5" max="180" />
+            <input v-model.number="form.focusMinutes" class="input" type="number" min="5" max="180" @keyup.enter="save" />
           </label>
           <label class="field">
             <span class="field-label">休息时长（分钟）</span>
-            <input v-model.number="form.breakMinutes" class="input" type="number" min="1" max="60" />
+            <input v-model.number="form.breakMinutes" class="input" type="number" min="1" max="60" @keyup.enter="save" />
           </label>
           <label class="field">
             <span class="field-label">每日目标（分钟）</span>
-            <input v-model.number="form.dailyGoalMinutes" class="input" type="number" min="30" max="720" />
+            <input v-model.number="form.dailyGoalMinutes" class="input" type="number" min="30" max="720" @keyup.enter="save" />
           </label>
         </div>
         <p class="hint">目标会显示在计时器下方，作为当天进度的参照。</p>
@@ -335,6 +365,17 @@ defineExpose({ fill });
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--text-dim);
+}
+
+.field-note {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.field-note.err {
+  color: #ff9b9b;
 }
 
 .scenes {
