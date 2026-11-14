@@ -12,3 +12,6 @@ coverage/
 .workbuddy/shots/
 .workbuddy/memory/
 frontend/.tmp/
+
+# ── 本地工作数据（e2e 脚本/备份等，不进开源仓库）──
+.workbuddy/
