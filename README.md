@@ -66,22 +66,15 @@ npm run migrate
 
 > 表结构与索引见 `backend/src/db/schema.mysql.sql`；DAO 为手写 SQL，无 ORM。
 
-## 启用月见大模型增强（可选）
+## 启用月见大模型增强（可选，按账号配置）
 
-月见默认走**规则语库保底**，不配置任何 Key 也完整可用。填入 OpenAI 兼容协议的 Key 后自动升级为增强对话（上下文注入 + SSE 流式打字机）：
+月见默认走**规则语库保底**，项目本身**不内置任何 Key**。每个用户登录后在「设置 → 月见 · 大模型」填入自己的 OpenAI 兼容协议 Key，即可对自己的账号启用增强对话（上下文注入 + SSE 流式打字机）：
 
-```ini
-# DeepSeek
-LLM_API_KEY=sk-xxx
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
-
-# 或阿里百炼
-# LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-# LLM_MODEL=qwen-plus
-```
-
-重启后端即可，`GET /api/ai/config` 会返回当前模式；更换模型只改 `.env`，不动代码。
+- **按账号隔离**：Key 存在各用户自己的数据行里（`user_llm_keys` 表），用户之间互相不可见、不可用、不可删对方的记录；
+- **历史记录**：每次保存生成一条历史（最多保留 10 条，新→旧），最新一条为生效配置；可按条删除，删掉生效那条会自动回落到上一条，全部删光则回到规则语库；
+- **Key 安全**：明文只存在后端数据库，任何接口（含本人）都只返回打码值（如 `sk-ab****abcd`）；
+- **测试连接**：验证的是输入框里尚未保存的配置，可先测再存；
+- `backend/.env` 中的 `LLM_BASE_URL` / `LLM_MODEL` 仅作为新用户保存时的接口地址与模型推荐默认值，不再是任何人生效的 Key。
 
 ## 测试
 
@@ -118,7 +111,7 @@ cd frontend  && npm test   # Vitest：计时算法 / 标题同步 / 格式化 / 
 1. **Canvas 粒子数据不进响应式**：粒子数组为普通对象，`engine.js` 用 rAF 直接绘制；Vue 只管理场景 ID、音效开关等低频状态。
 2. **倒计时权威源在前端 session store**：全部由时间戳差值计算，`setInterval` 只负责推动重绘，后台节流不漂移。
 3. **后端时长回算校验**：入库时长以起止时间戳差值为准（容忍 ±60s），前端上报值仅做一致性校验，防脏数据。
-4. **Key 只在后端**：大模型 API Key 只存在于后端 `.env`，前端通过 `/api/ai` 代理访问。
+4. **Key 只在后端**：每位用户的月见 API Key 存在该用户自己的数据库行里（用户间隔离），前端与接口只接触打码值，真实请求由后端代理完成。
 
 ## 本地端到端验收（可选）
 

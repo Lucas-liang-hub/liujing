@@ -7,7 +7,7 @@ import { runMigrations } from '../../src/db/migrate.js';
 export async function resetDatabase() {
   await runMigrations();
   const db = await getDb();
-  await db.exec('DELETE FROM study_records; DELETE FROM users;');
+  await db.exec('DELETE FROM study_records; DELETE FROM user_llm_keys; DELETE FROM users;');
   return db;
 }
 

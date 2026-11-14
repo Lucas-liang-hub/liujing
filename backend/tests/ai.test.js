@@ -72,16 +72,29 @@ describe('POST /api/ai/chat 保底轨', () => {
   });
 });
 
-describe('LLM 运行时配置 /api/ai/llm', () => {
-  const put = (body) => request(app).put('/api/ai/llm').set('Authorization', `Bearer ${token}`).send(body);
-  const get = () => request(app).get('/api/ai/llm').set('Authorization', `Bearer ${token}`);
-  const del = () => request(app).delete('/api/ai/llm').set('Authorization', `Bearer ${token}`);
+describe('LLM 按用户配置 /api/ai/llm', () => {
+  const put = (body, tk = token) => request(app).put('/api/ai/llm').set('Authorization', `Bearer ${tk}`).send(body);
+  const get = (tk = token) => request(app).get('/api/ai/llm').set('Authorization', `Bearer ${tk}`);
+  const del = (id, tk = token) => request(app).delete(`/api/ai/llm/${id}`).set('Authorization', `Bearer ${tk}`);
+  let otherToken; // 第二个用户，用于隔离性验证
 
   it('未登录返回 401', async () => {
     expect((await request(app).get('/api/ai/llm')).status).toBe(401);
   });
 
-  it('空 apiKey 返回 400', async () => {
+  it('新用户默认没有任何 Key 配置（configured=false，历史为空）', async () => {
+    const reg = await registerUser({ username: 'ai_fresh' });
+    otherToken = reg.body.token;
+    const res = await get(otherToken);
+    expect(res.status).toBe(200);
+    expect(res.body.configured).toBe(false);
+    expect(res.body.active).toBeNull();
+    expect(res.body.history).toEqual([]);
+    const cfg = await request(app).get('/api/ai/config').set('Authorization', `Bearer ${otherToken}`);
+    expect(cfg.body.llmEnabled).toBe(false);
+  });
+
+  it('空 apiKey 且从未配置过返回 400', async () => {
     expect((await put({ apiKey: '  ' })).status).toBe(400);
   });
 
@@ -89,31 +102,67 @@ describe('LLM 运行时配置 /api/ai/llm', () => {
     expect((await put({ apiKey: 'sk-test-12345678', baseUrl: 'not-a-url' })).status).toBe(400);
   });
 
-  it('保存后状态为 runtime 且 Key 打码，llmEnabled 变 true', async () => {
+  it('保存后成为本人生效配置，Key 打码，llmEnabled 变 true', async () => {
     const saved = await put({ apiKey: 'sk-abcdef1234567890abcd', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' });
     expect(saved.status).toBe(200);
-    expect(saved.body.source).toBe('runtime');
-    expect(saved.body.keyMasked).toMatch(/^sk-ab\*\*\*\*abcd$/);
-    expect(saved.body.keyMasked).not.toContain('abcdef1234567890');
+    expect(saved.body.configured).toBe(true);
+    expect(saved.body.active.keyMasked).toMatch(/^sk-ab\*\*\*\*abcd$/);
+    expect(saved.body.active.keyMasked).not.toContain('abcdef1234567890');
+    expect(saved.body.active.keyMasked).not.toBe('sk-abcdef1234567890abcd'); // 明文绝不回传
 
     const status = await get();
     expect(status.body.configured).toBe(true);
-    expect(status.body.source).toBe('runtime');
-    expect(status.body.model).toBe('deepseek-chat');
+    expect(status.body.history).toHaveLength(1);
+    expect(JSON.stringify(status.body)).not.toContain('abcdef1234567890');
 
     const cfg = await request(app).get('/api/ai/config').set('Authorization', `Bearer ${token}`);
     expect(cfg.body.llmEnabled).toBe(true);
+    expect(cfg.body.model).toBe('deepseek-chat');
   });
 
   it('只换模型/地址时无需重新粘贴 Key，沿用当前 Key', async () => {
-    const saved = await put({ apiKey: 'sk-abcdef1234567890abcd', model: 'deepseek-chat' });
-    const masked = saved.body.keyMasked;
-
+    const before = (await get()).body.active.keyMasked;
     const res = await put({ model: 'deepseek-reasoner' });
     expect(res.status).toBe(200);
-    expect(res.body.model).toBe('deepseek-reasoner');
-    expect(res.body.keyMasked).toBe(masked); // Key 未变
+    expect(res.body.active.model).toBe('deepseek-reasoner');
+    expect(res.body.active.keyMasked).toBe(before); // Key 未变
     expect(res.body.configured).toBe(true);
+  });
+
+  it('用户之间互相不可见：乙看不到甲的历史，也删不掉甲的记录', async () => {
+    const mine = await get();
+    const theirs = await get(otherToken);
+    expect(mine.body.history.length).toBeGreaterThan(0);
+    expect(theirs.body.history).toHaveLength(0); // 乙的账号里没有甲的任何记录
+
+    const myActiveId = mine.body.active.id;
+    const stolen = await del(myActiveId, otherToken);
+    expect(stolen.status).toBe(400); // 无权删除
+    expect((await get()).body.history.length).toBeGreaterThan(0); // 甲的记录还在
+  });
+
+  it('删除生效那条后回落到上一条历史；全部删光则回到规则语库保底', async () => {
+    // 再存一条，使历史为 [新的, 旧的]，生效 = 新的
+    const saved = await put({ apiKey: 'sk-zzzz999988887777aaa', model: 'deepseek-chat' });
+    const activeId = saved.body.active.id;
+    let status = await get();
+    expect(status.body.history).toHaveLength(3);
+    expect(status.body.history[0].keyMasked).toMatch(/^sk-zz\*\*\*\*7aaa$/); // 新→旧排列
+
+    let res = await del(activeId);
+    expect(res.status).toBe(200);
+    expect(res.body.configured).toBe(true); // 回落到上一条
+    expect(res.body.active.keyMasked).toMatch(/^sk-ab\*\*\*\*abcd$/);
+
+    // 逐条删光
+    for (const row of res.body.history) {
+      res = await del(row.id);
+    }
+    expect(res.body.configured).toBe(false);
+    expect(res.body.active).toBeNull();
+    expect(res.body.history).toEqual([]);
+    const cfg = await request(app).get('/api/ai/config').set('Authorization', `Bearer ${token}`);
+    expect(cfg.body.llmEnabled).toBe(false);
   });
 
   it('测试连接优先使用表单里未保存的候选配置', async () => {
@@ -146,13 +195,5 @@ describe('LLM 运行时配置 /api/ai/llm', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
-  });
-
-  it('删除后回落 env，llmEnabled 回到 .env 的状态', async () => {
-    const res = await del();
-    expect(res.status).toBe(200);
-    expect(res.body.source).toBe('env');
-    const cfg = await request(app).get('/api/ai/config').set('Authorization', `Bearer ${token}`);
-    expect(cfg.body.llmEnabled).toBe(false); // 测试环境未配 .env Key
   });
 });

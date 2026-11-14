@@ -3,7 +3,6 @@ import cors from 'cors';
 import { config } from './config/index.js';
 import { authGuard } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
-import { isLlmEnabled } from './ai/llm.js';
 import authRoutes from './routes/auth.js';
 import sessionRoutes from './routes/sessions.js';
 import statsRoutes from './routes/stats.js';
@@ -15,8 +14,9 @@ export function createApp() {
   app.use(cors({ origin: config.corsOrigin }));
   app.use(express.json({ limit: '256kb' }));
 
+  // llmEnabled 按登录用户各自的 Key 判定，见 GET /api/ai/config；health 是匿名接口，不再返回全局值
   app.get('/api/health', (req, res) => {
-    res.json({ ok: true, driver: config.db.driver, llmEnabled: isLlmEnabled(), time: new Date().toISOString() });
+    res.json({ ok: true, driver: config.db.driver, time: new Date().toISOString() });
   });
 
   // /api/auth 内部自行控制闸门（注册/登录免鉴权，profile 需鉴权）

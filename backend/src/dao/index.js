@@ -280,3 +280,59 @@ export const configDao = {
     await db.run('DELETE FROM app_configs WHERE config_key = ?', [key]);
   },
 };
+
+/* --------------------- 用户月见 LLM Key（每用户独立） --------------------- */
+
+function mapLlmKey(row) {
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    apiKey: row.api_key, // 仅后端内部使用，出接口前必须打码
+    baseUrl: row.base_url,
+    model: row.model,
+    createdAt: row.created_at,
+  };
+}
+
+/** 历史记录上限：超出后自动裁掉最旧的 */
+const LLM_KEY_HISTORY_LIMIT = 10;
+
+export const llmKeyDao = {
+  /** 某用户的全部 Key 历史（新 → 旧）。查询强制带 user_id，用户之间互不可见 */
+  async listByUser(userId) {
+    const db = await getDb();
+    const rows = await db.query('SELECT * FROM user_llm_keys WHERE user_id = ? ORDER BY id DESC', [userId]);
+    return rows.map(mapLlmKey);
+  },
+
+  /** 当前生效配置 = 该用户最新一条历史；从未配置则返回 null（月见走规则语库保底） */
+  async latestByUser(userId) {
+    const db = await getDb();
+    const row = await db.get('SELECT * FROM user_llm_keys WHERE user_id = ? ORDER BY id DESC LIMIT 1', [userId]);
+    return row ? mapLlmKey(row) : null;
+  },
+
+  /** 追加一条历史并立即生效；超出上限时裁剪最旧记录 */
+  async add(userId, { apiKey, baseUrl, model }) {
+    const db = await getDb();
+    await db.run(
+      'INSERT INTO user_llm_keys (user_id, api_key, base_url, model, created_at) VALUES (?, ?, ?, ?, ?)',
+      [userId, apiKey, baseUrl, model, toLocalDateTime()],
+    );
+    const overflow = await db.query(
+      'SELECT id FROM user_llm_keys WHERE user_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?',
+      [userId, LLM_KEY_HISTORY_LIMIT],
+    );
+    if (overflow.length) {
+      await db.run('DELETE FROM user_llm_keys WHERE user_id = ? AND id <= ?', [userId, Number(overflow[0].id)]);
+    }
+    return llmKeyDao.latestByUser(userId);
+  },
+
+  /** 删除本人的一条历史；别人的记录删不到（user_id 不匹配时无行受影响），返回是否真的删了 */
+  async removeOwned(userId, id) {
+    const db = await getDb();
+    const res = await db.run('DELETE FROM user_llm_keys WHERE id = ? AND user_id = ?', [id, userId]);
+    return res.changes > 0;
+  },
+};

@@ -6,14 +6,23 @@ import { createPinia, setActivePinia } from 'pinia';
 const updateProfileMock = vi.fn(async (payload) => ({
   user: { id: 1, username: 'yyy', nickname: payload.nickname ?? '大王', prefs: payload.prefs ?? {} },
 }));
-const getLlmMock = vi.fn(async () => ({ configured: false, source: 'env', baseUrl: '', model: '' }));
+const getLlmMock = vi.fn(async () => ({
+  configured: false,
+  defaults: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  active: null,
+  history: [],
+}));
 const setLlmMock = vi.fn(async (payload) => ({
   configured: true,
-  source: 'runtime',
-  baseUrl: payload.baseUrl || 'https://api.deepseek.com/v1',
-  model: payload.model || 'deepseek-chat',
-  keyMasked: 'sk-abc****wxyz',
+  active: {
+    id: 2,
+    baseUrl: payload.baseUrl || 'https://api.deepseek.com/v1',
+    model: payload.model || 'deepseek-chat',
+    keyMasked: 'sk-abc****wxyz',
+    createdAt: '2026-11-15T01:30:00',
+  },
 }));
+const deleteLlmKeyMock = vi.fn(async () => ({ configured: false, active: null, history: [] }));
 const testLlmMock = vi.fn(async () => ({ ok: true, reply: '连接正常', tested: { model: 'deepseek-chat' } }));
 
 vi.mock('../src/api/index.js', () => ({
@@ -27,7 +36,7 @@ vi.mock('../src/api/index.js', () => ({
     config: vi.fn(async () => ({ greeting: '' })),
     getLlm: (...args) => getLlmMock(...args),
     setLlm: (...args) => setLlmMock(...args),
-    clearLlm: vi.fn(async () => ({ configured: false, source: 'env', baseUrl: '', model: '' })),
+    deleteLlmKey: (...args) => deleteLlmKeyMock(...args),
     testLlm: (...args) => testLlmMock(...args),
     chat: vi.fn(async () => ({})),
     streamChat: vi.fn(),
@@ -127,14 +136,26 @@ describe('设置页 · 月见大模型配置', () => {
   const llmBtn = (wrapper, i) => wrapper.findAll('.llm-actions .btn')[i];
 
   beforeEach(() => {
+    // mockClear 只清调用记录，不重置 mockImplementation；必须显式恢复默认返回，防止用例间泄漏
+    getLlmMock.mockImplementation(async () => ({
+      configured: false,
+      defaults: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+      active: null,
+      history: [],
+    }));
     setLlmMock.mockClear();
     testLlmMock.mockClear();
-    getLlmMock.mockClear();
+    deleteLlmKeyMock.mockClear();
     localStorage.clear();
   });
 
   it('已配置过 Key 时，留空也能只改模型/地址', async () => {
-    getLlmMock.mockResolvedValue({ configured: true, source: 'env', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' });
+    getLlmMock.mockResolvedValue({
+      configured: true,
+      defaults: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+      active: { id: 1, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyMasked: 'sk-abc****wxyz', createdAt: '2026-11-15T01:00:00' },
+      history: [{ id: 1, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyMasked: 'sk-abc****wxyz', createdAt: '2026-11-15T01:00:00' }],
+    });
     const wrapper = await mountSettings();
     await llmInputs(wrapper)[2].setValue('deepseek-reasoner');
     await llmBtn(wrapper, 0).trigger('click');
@@ -147,7 +168,6 @@ describe('设置页 · 月见大模型配置', () => {
   });
 
   it('未配置且 Key 为空时给出提示，不发请求', async () => {
-    getLlmMock.mockResolvedValue({ configured: false, source: 'env', baseUrl: '', model: '' });
     const wrapper = await mountSettings();
     await llmBtn(wrapper, 0).trigger('click');
     await flushPromises();
@@ -157,7 +177,6 @@ describe('设置页 · 月见大模型配置', () => {
   });
 
   it('测试连接提交的是输入框里尚未保存的配置', async () => {
-    getLlmMock.mockResolvedValue({ configured: false, source: 'env', baseUrl: '', model: '' });
     const wrapper = await mountSettings();
     const [key, baseUrl, model] = llmInputs(wrapper);
     await key.setValue('sk-typed-but-unsaved');
@@ -173,5 +192,45 @@ describe('设置页 · 月见大模型配置', () => {
       model: 'qwen-plus',
     });
     expect(wrapper.find('.llm-actions .hint').text()).toContain('连接正常');
+  });
+
+  it('渲染本人 Key 历史：打码展示、标出生效中，绝无明文', async () => {
+    getLlmMock.mockResolvedValue({
+      configured: true,
+      defaults: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+      active: { id: 7, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyMasked: 'sk-new****7777', createdAt: '2026-11-15T02:00:00' },
+      history: [
+        { id: 7, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyMasked: 'sk-new****7777', createdAt: '2026-11-15T02:00:00' },
+        { id: 3, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-reasoner', keyMasked: 'sk-old****3333', createdAt: '2026-11-14T22:00:00' },
+      ],
+    });
+    const wrapper = await mountSettings();
+
+    const items = wrapper.findAll('.llm-history li');
+    expect(items).toHaveLength(2);
+    expect(items[0].text()).toContain('生效中');
+    expect(items[1].text()).not.toContain('生效中');
+    const html = wrapper.find('.llm-history').html();
+    expect(html).toContain('sk-new****7777');
+    expect(html).not.toContain('sk-plain-text-key');
+  });
+
+  it('点删除会带上该条 id 调用接口，并提示已删除', async () => {
+    getLlmMock.mockResolvedValue({
+      configured: true,
+      defaults: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+      active: { id: 7, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyMasked: 'sk-new****7777', createdAt: '2026-11-15T02:00:00' },
+      history: [
+        { id: 7, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyMasked: 'sk-new****7777', createdAt: '2026-11-15T02:00:00' },
+        { id: 3, baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-reasoner', keyMasked: 'sk-old****3333', createdAt: '2026-11-14T22:00:00' },
+      ],
+    });
+    const wrapper = await mountSettings();
+    await wrapper.findAll('.llm-history li')[1].find('.h-del').trigger('click');
+    await flushPromises();
+
+    expect(deleteLlmKeyMock).toHaveBeenCalledTimes(1);
+    expect(deleteLlmKeyMock.mock.calls[0][0]).toBe(3);
+    expect(wrapper.find('.llm-actions .hint').text()).toContain('已删除');
   });
 });

@@ -30,8 +30,21 @@ CREATE TABLE IF NOT EXISTS study_records (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '自习记录表';
 
 CREATE TABLE IF NOT EXISTS app_configs (
-  config_key   VARCHAR(64)  NOT NULL COMMENT '配置键，如 llm_runtime',
+  config_key   VARCHAR(64)  NOT NULL COMMENT '配置键',
   config_value TEXT         NULL COMMENT '配置值（JSON 或文本）',
   updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (config_key)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '应用级运行时配置';
+
+-- 每用户独立的月见大模型 Key（历史记录制：最新一条为生效配置，可按条删除）
+CREATE TABLE IF NOT EXISTS user_llm_keys (
+  id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id    INT UNSIGNED    NOT NULL,
+  api_key    VARCHAR(255)    NOT NULL COMMENT '明文仅存后端库，接口一律打码返回',
+  base_url   VARCHAR(255)    NOT NULL COMMENT 'OpenAI 兼容接口地址',
+  model      VARCHAR(100)    NOT NULL,
+  created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_llm_keys_user (user_id, id),
+  CONSTRAINT fk_llm_keys_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '用户各自的月见 LLM Key 历史';

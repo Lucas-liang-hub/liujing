@@ -31,3 +31,15 @@ CREATE TABLE IF NOT EXISTS app_configs (
   config_value TEXT,
   updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
+
+-- 每用户独立的月见大模型 Key（历史记录制：最新一条为生效配置，可按条删除）
+CREATE TABLE IF NOT EXISTS user_llm_keys (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  api_key    TEXT NOT NULL,
+  base_url   TEXT NOT NULL,
+  model      TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_keys_user ON user_llm_keys (user_id, id);

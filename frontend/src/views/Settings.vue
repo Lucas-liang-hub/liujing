@@ -25,27 +25,32 @@ const saving = ref(false);
 const savedAt = ref('');
 const error = ref('');
 
-/* ── 月见 · 大模型运行时配置 ─────────────────── */
-const llmStatus = ref(null); // { configured, source, baseUrl, model, keyMasked }
+/* ── 月见 · 大模型（Key 按账号独立存储） ─────────── */
+const llmData = ref(null); // { configured, defaults, active, history }
 const llmForm = reactive({ apiKey: '', baseUrl: '', model: '' });
 const llmSaving = ref(false);
 const llmMsg = ref('');
 const llmMsgOk = ref(true);
 
+function applyLlmState(data) {
+  llmData.value = data;
+  const src = data.active || data.defaults || {};
+  llmForm.baseUrl = src.baseUrl || '';
+  llmForm.model = src.model || '';
+}
+
 async function loadLlm() {
   try {
-    llmStatus.value = await aiApi.getLlm();
-    llmForm.baseUrl = llmStatus.value.baseUrl || '';
-    llmForm.model = llmStatus.value.model || '';
+    applyLlmState(await aiApi.getLlm());
   } catch {
-    llmStatus.value = null;
+    llmData.value = null;
   }
 }
 
 async function saveLlm() {
   const key = llmForm.apiKey.trim();
   // 已配置过 Key 时允许只换模型/地址，不必重新粘贴 Key
-  if (!key && !llmStatus.value?.configured) {
+  if (!key && !llmData.value?.configured) {
     llmMsg.value = '请填写 API Key';
     llmMsgOk.value = false;
     return;
@@ -53,17 +58,16 @@ async function saveLlm() {
   llmSaving.value = true;
   llmMsg.value = '';
   try {
-    llmStatus.value = await aiApi.setLlm({
+    const res = await aiApi.setLlm({
       apiKey: key,
       baseUrl: llmForm.baseUrl.trim(),
       model: llmForm.model.trim(),
     });
+    applyLlmState({ ...llmData.value, configured: true, active: res.active });
     llmForm.apiKey = '';
-    llmForm.baseUrl = llmStatus.value.baseUrl || '';
-    llmForm.model = llmStatus.value.model || '';
     await yuejian.init();
     llmMsgOk.value = true;
-    llmMsg.value = '已生效，月见现在用这个模型说话了';
+    llmMsg.value = '已生效，月见现在用这个模型说话了（旧配置保留在历史里）';
   } catch (err) {
     llmMsgOk.value = false;
     llmMsg.value = err.message;
@@ -72,16 +76,15 @@ async function saveLlm() {
   }
 }
 
-async function resetLlm() {
+/** 删除一条 Key 历史；删到生效那条时月见自动回落到上一条或规则语库 */
+async function removeKey(id) {
   llmSaving.value = true;
   llmMsg.value = '';
   try {
-    llmStatus.value = await aiApi.clearLlm();
-    llmForm.baseUrl = llmStatus.value.baseUrl || '';
-    llmForm.model = llmStatus.value.model || '';
+    applyLlmState(await aiApi.deleteLlmKey(id));
     await yuejian.init();
     llmMsgOk.value = true;
-    llmMsg.value = llmStatus.value.configured ? '已恢复为 .env 配置' : '已清除，月见回到规则语库陪伴';
+    llmMsg.value = '已删除该条记录';
   } catch (err) {
     llmMsgOk.value = false;
     llmMsg.value = err.message;
@@ -266,15 +269,13 @@ defineExpose({ fill });
           <span class="chip">{{ yuejian.llmEnabled ? '增强对话' : '规则陪伴' }}</span>
         </header>
 
-        <div class="llm-status" v-if="llmStatus">
-          <span class="st-dot" :class="{ on: llmStatus.configured }"></span>
+        <div class="llm-status" v-if="llmData">
+          <span class="st-dot" :class="{ on: llmData.configured }"></span>
           <span class="st-text">
-            {{ llmStatus.configured ? `已连接 · ${llmStatus.model}` : '未配置 · 走规则语库保底' }}
+            {{ llmData.configured ? `已连接 · ${llmData.active.model}` : '未配置 · 走规则语库保底' }}
           </span>
-          <span class="st-tag" v-if="llmStatus.configured">
-            {{ llmStatus.source === 'runtime' ? '页面配置' : '.env 默认' }}
-          </span>
-          <code class="st-key" v-if="llmStatus.keyMasked">{{ llmStatus.keyMasked }}</code>
+          <span class="st-tag" v-if="llmData.configured">本账号专属</span>
+          <code class="st-key" v-if="llmData.active?.keyMasked">{{ llmData.active.keyMasked }}</code>
         </div>
 
         <div class="llm-grid">
@@ -285,7 +286,7 @@ defineExpose({ fill });
               class="input"
               type="password"
               autocomplete="off"
-              :placeholder="llmStatus?.configured ? '留空表示沿用当前 Key' : 'sk-...'"
+              :placeholder="llmData?.configured ? '留空表示沿用当前 Key' : 'sk-...'"
             />
           </label>
           <label class="field">
@@ -307,11 +308,26 @@ defineExpose({ fill });
             {{ llmSaving ? '处理中' : '保存并启用' }}
           </button>
           <button class="btn btn-ghost" :disabled="llmSaving" @click="testLlm">测试连接</button>
-          <button class="btn btn-ghost" :disabled="llmSaving" @click="resetLlm">恢复 .env 默认</button>
           <span v-if="llmMsg" class="hint" :class="{ 'msg-err': !llmMsgOk }">{{ llmMsg }}</span>
         </div>
 
-        <p class="hint">Key 只保存在后端，页面与网络传输中仅显示打码值；切换立即生效，无需重启。「测试连接」测的是当前输入框里的配置，未保存也可以先试。</p>
+        <div class="llm-history" v-if="llmData?.history?.length">
+          <p class="field-label">Key 历史（最新一条为生效配置，可删除不需要的）</p>
+          <ul>
+            <li v-for="row in llmData.history" :key="row.id" :class="{ on: llmData.active?.id === row.id }">
+              <code>{{ row.keyMasked }}</code>
+              <span class="h-model">{{ row.model }}</span>
+              <span class="h-time">{{ (row.createdAt || '').replace('T', ' ').slice(0, 16) }}</span>
+              <span class="h-tag" v-if="llmData.active?.id === row.id">生效中</span>
+              <button class="btn btn-ghost h-del" :disabled="llmSaving" @click="removeKey(row.id)">删除</button>
+            </li>
+          </ul>
+        </div>
+
+        <p class="hint">
+          Key 按账号独立保存：只存在你自己的账号里，其他用户看不到、也无法影响；页面与网络传输中仅显示打码值。
+          「测试连接」测的是当前输入框里的配置，未保存也可以先试。删除生效中的记录后，月见会回落到上一条配置或规则语库。
+        </p>
       </section>
 
       <div class="actions">
@@ -507,6 +523,69 @@ defineExpose({ fill });
 }
 
 .msg-err {
+  color: #ff9b9b;
+}
+
+.llm-history {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.llm-history li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.llm-history li.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.h-model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.h-time {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.h-tag {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.h-del {
+  flex: 0 0 auto;
+  padding: 2px 10px;
+  font-size: 11.5px;
   color: #ff9b9b;
 }
 

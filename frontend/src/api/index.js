@@ -21,7 +21,7 @@ export const aiApi = {
   config: () => request('/ai/config'),
   getLlm: () => request('/ai/llm'),
   setLlm: (payload) => request('/ai/llm', { method: 'PUT', body: payload }),
-  clearLlm: () => request('/ai/llm', { method: 'DELETE' }),
+  deleteLlmKey: (id) => request(`/ai/llm/${id}`, { method: 'DELETE' }),
   testLlm: (payload = {}) => request('/ai/llm/test', { method: 'POST', body: payload }),
   chat: ({ message, event = 'chat', history = [], scene }) =>
     request('/ai/chat', { method: 'POST', body: { message, event, history, scene } }),

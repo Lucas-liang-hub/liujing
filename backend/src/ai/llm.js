@@ -1,17 +1,12 @@
-import { currentLlmConfigSync } from './runtime.js';
+import { config } from '../config/index.js';
 
 /**
  * 大模型代理（仅后端持有 Key，技术方案「不做的事」明确前端不得直连）。
- * 采用 OpenAI 兼容协议：支持 .env 静态配置 + 设置页运行时热切换。
+ * 采用 OpenAI 兼容协议：配置按用户传入（来自该用户自己的 Key 历史），不在本层读全局状态。
  */
 
-export function isLlmEnabled() {
-  return Boolean(currentLlmConfigSync().apiKey);
-}
-
-async function request(messages, stream, override) {
-  // override 用于「连接测试」时验证尚未保存的候选配置，不落库
-  const cfg = override ? { ...currentLlmConfigSync(), ...override } : currentLlmConfigSync();
+async function request(messages, stream, cfg) {
+  if (!cfg?.apiKey) throw new Error('尚未配置 API Key');
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -25,7 +20,7 @@ async function request(messages, stream, override) {
       temperature: 0.7,
       max_tokens: 600,
     }),
-    signal: AbortSignal.timeout(cfg.timeoutMs),
+    signal: AbortSignal.timeout(config.llm.timeoutMs),
   });
 
   if (!res.ok) {
@@ -35,9 +30,9 @@ async function request(messages, stream, override) {
   return res;
 }
 
-/** 非流式：一次性拿到完整回复；override 可传入候选配置做连通性测试 */
-export async function chatOnce(messages, override) {
-  const res = await request(messages, false, override);
+/** 非流式：一次性拿到完整回复；cfg 为该用户的 LLM 配置（或「测试连接」的候选配置） */
+export async function chatOnce(messages, cfg) {
+  const res = await request(messages, false, cfg);
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content;
   if (!content) throw new Error('LLM 返回内容为空');
@@ -47,9 +42,10 @@ export async function chatOnce(messages, override) {
 /**
  * 流式：逐段 yield 文本增量（SSE 解析，兼容跨 chunk 断行）
  * @param {Array<{role:string, content:string}>} messages
+ * @param {{apiKey:string, baseUrl:string, model:string}} cfg 该用户的 LLM 配置
  */
-export async function* streamChat(messages) {
-  const res = await request(messages, true);
+export async function* streamChat(messages, cfg) {
+  const res = await request(messages, true, cfg);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

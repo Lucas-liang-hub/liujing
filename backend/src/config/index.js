@@ -29,7 +29,8 @@ export const config = {
     connectionLimit: num(process.env.DB_POOL, 10),
   },
   llm: {
-    apiKey: process.env.LLM_API_KEY || '',
+    // 项目本身不内置任何 Key：每个用户在设置页配置自己的 Key（存 user_llm_keys 表）。
+    // baseUrl / model 仅作为新用户保存时的推荐默认值，可被 .env 预设。
     baseUrl: (process.env.LLM_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, ''),
     model: process.env.LLM_MODEL || 'deepseek-chat',
     timeoutMs: num(process.env.LLM_TIMEOUT_MS, 25000),
